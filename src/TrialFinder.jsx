@@ -3,6 +3,28 @@ import React, { useState, useEffect } from 'react';
 // API Configuration
 const API_BASE = 'https://clinicaltrials.gov/api/v2/studies';
 
+// Fetch trial count from ClinicalTrials.gov API
+async function fetchTrialCount({ condition, ageRange, location }) {
+  let url = `${API_BASE}?format=json&pageSize=1&countTotal=true&filter.overallStatus=RECRUITING`;
+  if (condition) url += `&query.cond=${encodeURIComponent(condition)}`;
+  if (ageRange) {
+    if (ageRange === 'child') url += `&filter.advanced=AREA[MinimumAge]RANGE[MIN,17 years]`;
+    else if (ageRange === 'adult') url += `&filter.advanced=AREA[MinimumAge]RANGE[18 years,64 years]`;
+    else if (ageRange === 'senior') url += `&filter.advanced=AREA[MinimumAge]RANGE[65 years,MAX]`;
+  }
+  if (location) url += `&query.locn=${encodeURIComponent(location)}`;
+
+  try {
+    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+    if (!response.ok) throw new Error(`API returned ${response.status}`);
+    const data = await response.json();
+    return data.totalCount || 0;
+  } catch (error) {
+    console.error('API Error:', error);
+    return null;
+  }
+}
+
 // Fetch trials from ClinicalTrials.gov API
 async function fetchTrials({ condition, pageSize = 20 }) {
   let url = `${API_BASE}?format=json&pageSize=${pageSize}&countTotal=true&filter.overallStatus=RECRUITING`;
@@ -64,15 +86,9 @@ const categories = [
   { id: 'diabetes', label: 'Diabetes', icon: '💉', searchTerm: 'diabetes', color: 'from-blue-500 to-indigo-600' },
   { id: 'mental', label: 'Mental Health', icon: '🧠', searchTerm: 'depression OR anxiety OR mental health', color: 'from-purple-500 to-violet-600' },
   { id: 'neuro', label: 'Neurological', icon: '⚡', searchTerm: 'alzheimer OR parkinson OR multiple sclerosis', color: 'from-amber-500 to-orange-600' },
-  { id: 'autoimmune', label: 'Autoimmune', icon: '🛡️', searchTerm: 'autoimmune OR rheumatoid OR lupus', color: 'from-emerald-500 to-teal-600' }
-];
-
-// Visitor intent options
-const visitorIntents = [
-  { id: 'patient', label: "I'm looking for treatment options", icon: '🏥', description: 'Find trials that might help with your condition' },
-  { id: 'caregiver', label: "I'm helping someone find options", icon: '💝', description: 'Research trials for a loved one' },
-  { id: 'curious', label: "I'm curious about clinical trials", icon: '🔍', description: 'Learn how trials work and what to expect' },
-  { id: 'researcher', label: "I'm a healthcare professional", icon: '👨‍⚕️', description: 'Explore ongoing research in your field' }
+  { id: 'autoimmune', label: 'Autoimmune', icon: '🛡️', searchTerm: 'autoimmune OR rheumatoid OR lupus', color: 'from-emerald-500 to-teal-600' },
+  { id: 'rare', label: 'Rare Diseases', icon: '🦋', searchTerm: 'rare disease OR orphan', color: 'from-pink-500 to-fuchsia-600' },
+  { id: 'infectious', label: 'Infectious Disease', icon: '🦠', searchTerm: 'infectious disease OR viral OR bacterial', color: 'from-lime-500 to-green-600' }
 ];
 
 // Status badge colors
@@ -83,79 +99,357 @@ const statusColors = {
   'NOT_YET_RECRUITING': 'bg-amber-100 text-amber-800 border-amber-200'
 };
 
-// Welcome Modal Component
-function WelcomeModal({ isOpen, onComplete }) {
-  const [selectedIntent, setSelectedIntent] = useState(null);
+// Animated number component
+function AnimatedNumber({ value, duration = 1000 }) {
+  const [displayValue, setDisplayValue] = useState(0);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (value === null) return;
 
-  const handleContinue = () => {
-    if (selectedIntent) {
-      localStorage.setItem('trialFinderIntent', selectedIntent);
-      onComplete(selectedIntent);
+    const startTime = Date.now();
+    const startValue = displayValue;
+
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = Math.floor(startValue + (value - startValue) * eased);
+
+      setDisplayValue(current);
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [value]);
+
+  return <span>{displayValue.toLocaleString()}</span>;
+}
+
+// Educational Onboarding Flow Component
+function OnboardingFlow({ onComplete }) {
+  const [step, setStep] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [trialCount, setTrialCount] = useState(null);
+  const [isLoadingCount, setIsLoadingCount] = useState(false);
+  const [totalTrials, setTotalTrials] = useState(null);
+
+  // Fetch initial total count
+  useEffect(() => {
+    fetchTrialCount({}).then(count => setTotalTrials(count));
+  }, []);
+
+  const steps = [
+    {
+      type: 'intro',
+      title: "Let's find trials that could help you",
+      subtitle: "Clinical trials are how new treatments become available to everyone",
+      content: (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl p-6">
+            <div className="text-center mb-6">
+              <div className="text-5xl font-bold text-indigo-600 mb-2">
+                {totalTrials ? <AnimatedNumber value={totalTrials} /> : '400,000+'}
+              </div>
+              <p className="text-slate-600">clinical trials are recruiting right now</p>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-2xl font-semibold text-emerald-600">Free</div>
+                <p className="text-xs text-slate-500">Study care at no cost</p>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-blue-600">Safe</div>
+                <p className="text-xs text-slate-500">FDA regulated</p>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-purple-600">Voluntary</div>
+                <p className="text-xs text-slate-500">Leave anytime</p>
+              </div>
+            </div>
+          </div>
+          <p className="text-slate-600 text-center">
+            Answer a few quick questions and we'll narrow down the trials most relevant to you.
+          </p>
+        </div>
+      )
+    },
+    {
+      type: 'question',
+      key: 'reason',
+      title: "What brings you here today?",
+      subtitle: "Understanding your motivation helps us find the right trials",
+      education: "People join clinical trials for many reasons — access to new treatments, contributing to research, or when current options aren't working. All reasons are valid.",
+      options: [
+        { value: 'seeking_treatment', label: 'Looking for treatment options', icon: '🏥', desc: 'Current treatments aren\'t enough' },
+        { value: 'newly_diagnosed', label: 'Recently diagnosed', icon: '📋', desc: 'Exploring all my options' },
+        { value: 'helping_someone', label: 'Helping a loved one', icon: '💝', desc: 'Researching for someone I care about' },
+        { value: 'prevention', label: 'Prevention or early detection', icon: '🛡️', desc: 'Family history or risk factors' }
+      ]
+    },
+    {
+      type: 'question',
+      key: 'condition',
+      title: "What condition are you researching?",
+      subtitle: "This will help us filter to relevant trials",
+      education: "Clinical trials exist for almost every health condition. Some of the biggest breakthroughs in medicine — from cancer immunotherapy to HIV treatments — came from clinical trials.",
+      options: categories.slice(0, 6).map(c => ({
+        value: c.searchTerm,
+        label: c.label,
+        icon: c.icon,
+        desc: `Trials for ${c.label.toLowerCase()}`
+      })),
+      allowCustom: true,
+      customPlaceholder: "Or type your condition..."
+    },
+    {
+      type: 'question',
+      key: 'age',
+      title: "What age group?",
+      subtitle: "Trials have specific eligibility criteria",
+      education: "Age requirements ensure treatments are tested safely. Many trials welcome a wide range of ages, and there are specific trials designed for children, adults, and seniors.",
+      options: [
+        { value: 'child', label: 'Under 18', icon: '👶', desc: 'Pediatric trials' },
+        { value: 'adult', label: '18-64 years', icon: '👤', desc: 'Adult trials' },
+        { value: 'senior', label: '65 and over', icon: '👴', desc: 'Senior-focused trials' },
+        { value: 'any', label: 'Any age', icon: '👥', desc: 'Show all trials' }
+      ]
+    },
+    {
+      type: 'summary',
+      title: "Here's what we found",
+      subtitle: "Trials matching your criteria"
     }
+  ];
+
+  const currentStep = steps[step];
+  const isLastStep = step === steps.length - 1;
+  const progress = ((step + 1) / steps.length) * 100;
+
+  // Update trial count when answers change
+  useEffect(() => {
+    if (answers.condition) {
+      setIsLoadingCount(true);
+      fetchTrialCount({
+        condition: answers.condition,
+        ageRange: answers.age !== 'any' ? answers.age : null
+      }).then(count => {
+        setTrialCount(count);
+        setIsLoadingCount(false);
+      });
+    }
+  }, [answers.condition, answers.age]);
+
+  const handleSelect = (key, value) => {
+    const newAnswers = { ...answers, [key]: value };
+    setAnswers(newAnswers);
+
+    setTimeout(() => {
+      if (step < steps.length - 1) {
+        setStep(step + 1);
+      }
+    }, 300);
+  };
+
+  const handleBack = () => {
+    if (step > 0) setStep(step - 1);
+  };
+
+  const handleComplete = () => {
+    onComplete(answers);
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-8 py-10 text-center">
-          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
+    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
+        {/* Header with Progress */}
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-5 shrink-0">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-white">Trial Finder</h3>
+                <p className="text-white/70 text-sm">Step {step + 1} of {steps.length}</p>
+              </div>
+            </div>
+
+            {/* Live Trial Counter */}
+            {answers.condition && (
+              <div className="bg-white/20 rounded-xl px-4 py-2 text-right">
+                <div className="text-white/70 text-xs">Matching trials</div>
+                <div className="text-white font-bold text-lg">
+                  {isLoadingCount ? (
+                    <span className="animate-pulse">...</span>
+                  ) : trialCount !== null ? (
+                    <AnimatedNumber value={trialCount} />
+                  ) : '—'}
+                </div>
+              </div>
+            )}
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Welcome to Trial Finder</h1>
-          <p className="text-white/80 text-lg">Connecting you with clinical research opportunities</p>
+
+          {/* Progress Bar */}
+          <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-white rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
         </div>
 
         {/* Content */}
-        <div className="p-8">
-          <h2 className="text-xl font-semibold text-slate-800 mb-2 text-center">
-            What brings you here today?
-          </h2>
-          <p className="text-slate-500 text-center mb-6">
-            This helps us personalize your experience
-          </p>
+        <div className="p-6 overflow-y-auto flex-1">
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">{currentStep.title}</h2>
+          <p className="text-slate-500 mb-6">{currentStep.subtitle}</p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {visitorIntents.map((intent) => (
-              <button
-                key={intent.id}
-                onClick={() => setSelectedIntent(intent.id)}
-                className={`p-4 rounded-xl border-2 text-left transition-all ${
-                  selectedIntent === intent.id
-                    ? 'border-indigo-500 bg-indigo-50 shadow-md'
-                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">{intent.icon}</span>
-                  <div>
-                    <p className="font-medium text-slate-800">{intent.label}</p>
-                    <p className="text-sm text-slate-500">{intent.description}</p>
+          {/* Educational Tip */}
+          {currentStep.education && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+              <div className="flex gap-3">
+                <span className="text-xl">💡</span>
+                <p className="text-sm text-amber-800">{currentStep.education}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Intro Content */}
+          {currentStep.type === 'intro' && currentStep.content}
+
+          {/* Question Options */}
+          {currentStep.type === 'question' && (
+            <div className="space-y-3">
+              {currentStep.options.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => handleSelect(currentStep.key, opt.value)}
+                  className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
+                    answers[currentStep.key] === opt.value
+                      ? 'border-indigo-500 bg-indigo-50 shadow-md'
+                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{opt.icon}</span>
+                    <div className="flex-1">
+                      <p className="font-medium text-slate-800">{opt.label}</p>
+                      <p className="text-sm text-slate-500">{opt.desc}</p>
+                    </div>
+                    {answers[currentStep.key] === opt.value && (
+                      <svg className="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    )}
                   </div>
+                </button>
+              ))}
+
+              {currentStep.allowCustom && (
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder={currentStep.customPlaceholder}
+                    className="w-full p-4 pl-12 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.target.value.trim()) {
+                        handleSelect(currentStep.key, e.target.value.trim());
+                      }
+                    }}
+                  />
+                  <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
                 </div>
-              </button>
-            ))}
-          </div>
+              )}
+            </div>
+          )}
 
-          <button
-            onClick={handleContinue}
-            disabled={!selectedIntent}
-            className={`w-full mt-6 py-4 rounded-xl font-semibold text-lg transition-all ${
-              selectedIntent
-                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:shadow-lg hover:scale-[1.02]'
-                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-            }`}
-          >
-            Get Started
-          </button>
+          {/* Summary */}
+          {currentStep.type === 'summary' && (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-6 text-center">
+                <div className="text-5xl font-bold text-emerald-600 mb-2">
+                  {isLoadingCount ? (
+                    <span className="animate-pulse">Loading...</span>
+                  ) : trialCount !== null ? (
+                    <AnimatedNumber value={trialCount} duration={1500} />
+                  ) : '—'}
+                </div>
+                <p className="text-slate-600">clinical trials match your criteria</p>
+              </div>
 
-          <p className="text-center text-sm text-slate-400 mt-4">
-            Data sourced from <a href="https://clinicaltrials.gov" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">ClinicalTrials.gov</a>
-          </p>
+              <div className="bg-slate-50 rounded-xl p-4">
+                <h4 className="font-medium text-slate-800 mb-3">Your search criteria:</h4>
+                <div className="space-y-2 text-sm">
+                  {answers.reason && (
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 bg-indigo-500 rounded-full"></span>
+                      <span className="text-slate-600">Goal: {answers.reason.replace(/_/g, ' ')}</span>
+                    </div>
+                  )}
+                  {answers.condition && (
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 bg-indigo-500 rounded-full"></span>
+                      <span className="text-slate-600">Condition: {answers.condition}</span>
+                    </div>
+                  )}
+                  {answers.age && (
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 bg-indigo-500 rounded-full"></span>
+                      <span className="text-slate-600">Age: {answers.age === 'any' ? 'Any age' : answers.age}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex gap-3">
+                  <span className="text-xl">ℹ️</span>
+                  <p className="text-sm text-blue-800">
+                    <strong>What happens next?</strong> You'll see a list of trials you may be eligible for.
+                    Click any trial to learn more, then contact the study team directly if interested.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
+          {step > 0 ? (
+            <button
+              onClick={handleBack}
+              className="text-slate-600 hover:text-slate-800 font-medium"
+            >
+              ← Back
+            </button>
+          ) : (
+            <div></div>
+          )}
+
+          {currentStep.type === 'intro' && (
+            <button
+              onClick={() => setStep(step + 1)}
+              className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
+            >
+              Get Started →
+            </button>
+          )}
+
+          {currentStep.type === 'summary' && (
+            <button
+              onClick={handleComplete}
+              className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
+            >
+              View My Trials →
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -289,112 +583,6 @@ function TrialDetail({ trial, onClose }) {
   );
 }
 
-// Guided Assistant Modal
-function GuidedAssistant({ isOpen, onClose, onSearch }) {
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState({ category: '', goal: '', age: '' });
-
-  const questions = [
-    {
-      question: "What condition are you researching?",
-      key: 'category',
-      options: categories.map(c => ({ value: c.searchTerm, label: `${c.icon} ${c.label}` }))
-    },
-    {
-      question: "What's your primary goal?",
-      key: 'goal',
-      options: [
-        { value: 'new_treatment', label: '🔬 Find newer treatment options' },
-        { value: 'current_not_working', label: "💭 Current treatment isn't working" },
-        { value: 'preventive', label: '🛡️ Preventive care or early detection' },
-        { value: 'exploring', label: "🔍 Just exploring what's available" }
-      ]
-    },
-    {
-      question: "What age group?",
-      key: 'age',
-      options: [
-        { value: 'child', label: '👶 Child (under 18)' },
-        { value: 'adult', label: '👤 Adult (18-64)' },
-        { value: 'senior', label: '👴 Senior (65+)' },
-        { value: 'any', label: '📋 Any age' }
-      ]
-    }
-  ];
-
-  if (!isOpen) return null;
-
-  const currentQ = questions[step];
-  const isLastStep = step === questions.length - 1;
-
-  const handleSelect = (value) => {
-    const newAnswers = { ...answers, [currentQ.key]: value };
-    setAnswers(newAnswers);
-
-    if (isLastStep) {
-      onSearch(newAnswers.category);
-      onClose();
-      setStep(0);
-      setAnswers({ category: '', goal: '', age: '' });
-    } else {
-      setStep(step + 1);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-semibold text-white">Find the right trial</h3>
-                <p className="text-white/70 text-sm">Question {step + 1} of {questions.length}</p>
-              </div>
-            </div>
-            <button onClick={onClose} className="text-white/70 hover:text-white p-1">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          {/* Progress */}
-          <div className="h-1 bg-white/20 rounded-full">
-            <div className="h-full bg-white rounded-full transition-all" style={{ width: `${((step + 1) / questions.length) * 100}%` }} />
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="p-6">
-          <h4 className="text-xl font-semibold text-slate-800 mb-4">{currentQ.question}</h4>
-          <div className="space-y-2">
-            {currentQ.options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => handleSelect(opt.value)}
-                className="w-full px-4 py-3.5 text-left bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 border-2 border-transparent rounded-xl transition-all"
-              >
-                <span className="font-medium text-slate-700">{opt.label}</span>
-              </button>
-            ))}
-          </div>
-          {step > 0 && (
-            <button onClick={() => setStep(step - 1)} className="mt-4 text-sm text-slate-500 hover:text-slate-700">
-              ← Go back
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Loading Skeleton
 function TrialSkeleton() {
   return (
@@ -413,29 +601,34 @@ function TrialSkeleton() {
 
 // Main Component
 export default function TrialFinder() {
-  const [showWelcome, setShowWelcome] = useState(false);
-  const [userIntent, setUserIntent] = useState(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingAnswers, setOnboardingAnswers] = useState(null);
   const [view, setView] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [trials, setTrials] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTrial, setSelectedTrial] = useState(null);
-  const [showAssistant, setShowAssistant] = useState(false);
 
   // Check for returning visitor
   useEffect(() => {
-    const savedIntent = localStorage.getItem('trialFinderIntent');
-    if (savedIntent) {
-      setUserIntent(savedIntent);
+    const savedAnswers = localStorage.getItem('trialFinderAnswers');
+    if (savedAnswers) {
+      setOnboardingAnswers(JSON.parse(savedAnswers));
     } else {
-      setShowWelcome(true);
+      setShowOnboarding(true);
     }
   }, []);
 
-  const handleWelcomeComplete = (intent) => {
-    setUserIntent(intent);
-    setShowWelcome(false);
+  const handleOnboardingComplete = async (answers) => {
+    setOnboardingAnswers(answers);
+    localStorage.setItem('trialFinderAnswers', JSON.stringify(answers));
+    setShowOnboarding(false);
+
+    // Automatically search with the onboarding answers
+    if (answers.condition) {
+      handleSearch(answers.condition);
+    }
   };
 
   const handleSearch = async (query) => {
@@ -461,10 +654,16 @@ export default function TrialFinder() {
     setTrials([]);
   };
 
+  const startNewSearch = () => {
+    localStorage.removeItem('trialFinderAnswers');
+    setOnboardingAnswers(null);
+    setShowOnboarding(true);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
-      {/* Welcome Modal */}
-      <WelcomeModal isOpen={showWelcome} onComplete={handleWelcomeComplete} />
+      {/* Onboarding Flow */}
+      {showOnboarding && <OnboardingFlow onComplete={handleOnboardingComplete} />}
 
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
@@ -483,13 +682,13 @@ export default function TrialFinder() {
             </div>
 
             <button
-              onClick={() => setShowAssistant(true)}
+              onClick={startNewSearch}
               className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-indigo-200 transition-all"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className="hidden sm:inline">Help me find trials</span>
+              <span className="hidden sm:inline">Find trials for me</span>
             </button>
           </div>
         </div>
@@ -536,7 +735,7 @@ export default function TrialFinder() {
             {/* Categories */}
             <div className="mb-12">
               <h3 className="text-xl font-semibold text-slate-800 mb-6">Browse by Category</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
                 {categories.map(cat => (
                   <button
                     key={cat.id}
@@ -640,7 +839,6 @@ export default function TrialFinder() {
 
       {/* Modals */}
       <TrialDetail trial={selectedTrial} onClose={() => setSelectedTrial(null)} />
-      <GuidedAssistant isOpen={showAssistant} onClose={() => setShowAssistant(false)} onSearch={handleSearch} />
     </div>
   );
 }
