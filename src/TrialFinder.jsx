@@ -496,23 +496,29 @@ function scoreTrialMatch(trial, criteria) {
     matchReasons.push('🛡️ Prevention study');
   }
 
-  // Compensation preference
-  if (criteria.compensation === 'required') {
+  // Compensation preference based on searchType
+  if (criteria.searchType === 'paid') {
+    // User specifically wants paid studies
     if (trial.compensation?.likelyPaid) {
-      score += 40; // Strong boost for required compensation
+      score += 50; // Strong boost for paid trials
       matchReasons.push('💰 Likely pays participants');
     } else {
-      score -= 30; // Penalize non-paying trials when required
+      score -= 40; // Penalize non-paying trials
     }
-  } else if (criteria.compensation === 'preferred') {
-    if (trial.compensation?.likelyPaid) {
+    // Extra boost for healthy volunteer studies when looking for paid
+    if (trial.eligibility.healthyVolunteers) {
       score += 20;
-      matchReasons.push('💵 May offer compensation');
+    }
+  } else if (criteria.searchType === 'both') {
+    // User wants treatment AND payment
+    if (trial.compensation?.likelyPaid) {
+      score += 25;
+      matchReasons.push('💰 Likely pays participants');
     }
   }
 
-  // Healthy volunteer trials often pay
-  if (trial.eligibility.healthyVolunteers && trial.compensation?.likelyPaid) {
+  // Show healthy volunteer badge when relevant
+  if (trial.eligibility.healthyVolunteers) {
     matchReasons.push('👤 Open to healthy volunteers');
   }
 
@@ -761,13 +767,13 @@ function FocusedOnboarding({ onComplete }) {
     },
     {
       type: 'question',
-      key: 'userType',
-      title: "Who are you searching for?",
-      subtitle: "This helps us tailor the information we show",
+      key: 'searchType',
+      title: "What are you looking for?",
+      subtitle: "This helps us show you the right trials",
       options: [
-        { value: 'self', label: "Myself", icon: '👤', desc: "I'm the patient" },
-        { value: 'loved_one', label: 'A family member or friend', icon: '👨‍👩‍👧', desc: "I'm helping someone I care about" },
-        { value: 'provider', label: "I'm a healthcare provider", icon: '⚕️', desc: 'Researching options for a patient' }
+        { value: 'treatment', label: "Treatment for a condition", icon: '💊', desc: "I have a health condition I want to treat" },
+        { value: 'paid', label: "Paid research studies", icon: '💰', desc: "I want to get paid to participate" },
+        { value: 'both', label: "Both - treatment that pays", icon: '✨', desc: "Looking for paid trials for my condition" }
       ]
     },
     {
@@ -776,6 +782,7 @@ function FocusedOnboarding({ onComplete }) {
       title: "What condition are you researching?",
       subtitle: "Select a category or type your specific condition",
       options: [
+        { value: 'healthy volunteer', label: "I'm healthy - just want paid studies", icon: '💰', desc: 'No specific condition' },
         { value: 'breast cancer', label: 'Breast Cancer', icon: '🎗️' },
         { value: 'lung cancer', label: 'Lung Cancer', icon: '🫁' },
         { value: 'type 2 diabetes', label: 'Type 2 Diabetes', icon: '💉' },
@@ -895,17 +902,6 @@ function FocusedOnboarding({ onComplete }) {
         { value: 'minimal', label: 'Minimal visits', icon: '📅', desc: 'Monthly or less frequent' },
         { value: 'moderate', label: 'Moderate commitment', icon: '🗓️', desc: 'Weekly to bi-weekly visits' },
         { value: 'intensive', label: 'Whatever it takes', icon: '💪', desc: 'Open to frequent visits' }
-      ]
-    },
-    {
-      type: 'question',
-      key: 'compensation',
-      title: "Is getting paid for participation important?",
-      subtitle: "Some trials offer compensation for your time",
-      options: [
-        { value: 'required', label: 'Yes, I want paid trials', icon: '💰', desc: 'Only show trials that likely pay' },
-        { value: 'preferred', label: 'Preferred but not required', icon: '💵', desc: 'Prioritize paid trials' },
-        { value: 'not_important', label: 'Not important', icon: '➡️', desc: 'Treatment matters more than pay' }
       ]
     },
     {
