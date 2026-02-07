@@ -3,38 +3,25 @@ import React, { useState, useEffect } from 'react';
 // API Configuration
 const API_BASE = 'https://clinicaltrials.gov/api/v2/studies';
 
-// Fetch trial count from ClinicalTrials.gov API
-async function fetchTrialCount({ condition, ageRange, location }) {
-  let url = `${API_BASE}?format=json&pageSize=1&countTotal=true&filter.overallStatus=RECRUITING`;
-  if (condition) url += `&query.cond=${encodeURIComponent(condition)}`;
-  if (ageRange) {
-    if (ageRange === 'child') url += `&filter.advanced=AREA[MinimumAge]RANGE[MIN,17 years]`;
-    else if (ageRange === 'adult') url += `&filter.advanced=AREA[MinimumAge]RANGE[18 years,64 years]`;
-    else if (ageRange === 'senior') url += `&filter.advanced=AREA[MinimumAge]RANGE[65 years,MAX]`;
-  }
-  if (location) url += `&query.locn=${encodeURIComponent(location)}`;
-
-  try {
-    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
-    if (!response.ok) throw new Error(`API returned ${response.status}`);
-    const data = await response.json();
-    return data.totalCount || 0;
-  } catch (error) {
-    console.error('API Error:', error);
-    return null;
-  }
-}
-
-// Fetch trials from ClinicalTrials.gov API
-async function fetchTrials({ condition, pageSize = 20 }) {
+// Fetch trials with detailed criteria
+async function fetchMatchingTrials({ condition, age, location, phase, pageSize = 10 }) {
   let url = `${API_BASE}?format=json&pageSize=${pageSize}&countTotal=true&filter.overallStatus=RECRUITING`;
+
   if (condition) url += `&query.cond=${encodeURIComponent(condition)}`;
+  if (location) url += `&query.locn=${encodeURIComponent(location)}`;
+  if (phase && phase !== 'any') {
+    const phaseMap = { 'early': 'PHASE1,PHASE2', 'late': 'PHASE3,PHASE4' };
+    if (phaseMap[phase]) url += `&filter.phase=${phaseMap[phase]}`;
+  }
 
   try {
     const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
     if (!response.ok) throw new Error(`API returned ${response.status}`);
     const data = await response.json();
-    return { trials: (data.studies || []).map(parseTrialData), totalCount: data.totalCount || 0 };
+    return {
+      trials: (data.studies || []).map(parseTrialData),
+      totalCount: data.totalCount || 0
+    };
   } catch (error) {
     console.error('API Error:', error);
     return { trials: [], totalCount: 0, error: error.message };
@@ -54,355 +41,315 @@ function parseTrialData(study) {
   const contacts = p.contactsLocationsModule || {};
   const desc = p.descriptionModule || {};
 
+  // Extract contact info
+  const centralContact = contacts.centralContacts?.[0];
+  const locationContacts = contacts.locations?.[0]?.contacts?.[0];
+  const bestContact = centralContact || locationContacts;
+
   return {
     id: id.nctId || '',
     title: id.briefTitle || 'Untitled Study',
+    officialTitle: id.officialTitle || '',
     phase: design.phases?.join(', ') || 'Not specified',
     status: status.overallStatus || 'Unknown',
     sponsor: sponsors.leadSponsor?.name || 'Unknown Sponsor',
+    sponsorType: sponsors.leadSponsor?.class || 'Unknown',
     conditions: conds.conditions || [],
-    interventions: interventions.interventions?.map(i => i.name).join(', ') || 'Not specified',
+    interventions: interventions.interventions?.map(i => ({
+      name: i.name,
+      type: i.type,
+      description: i.description
+    })) || [],
+    interventionNames: interventions.interventions?.map(i => i.name).join(', ') || 'Not specified',
     description: desc.briefSummary || 'No description available',
+    detailedDescription: desc.detailedDescription || '',
     eligibility: {
       criteria: eligibility.eligibilityCriteria || 'Not specified',
       minAge: eligibility.minimumAge || 'Not specified',
       maxAge: eligibility.maximumAge || 'Not specified',
-      sex: eligibility.sex || 'All'
+      sex: eligibility.sex || 'All',
+      healthyVolunteers: eligibility.healthyVolunteers || 'No'
     },
-    locations: (contacts.locations || []).slice(0, 5).map(loc => ({
+    locations: (contacts.locations || []).slice(0, 10).map(loc => ({
       facility: loc.facility || 'Unknown Facility',
       city: loc.city || '',
       state: loc.state || '',
-      country: loc.country || ''
+      country: loc.country || '',
+      zip: loc.zip || '',
+      contacts: loc.contacts || []
     })),
-    contact: contacts.centralContacts?.[0] || null
+    contact: bestContact ? {
+      name: bestContact.name || '',
+      phone: bestContact.phone || '',
+      email: bestContact.email || ''
+    } : null,
+    enrollment: status.enrollmentInfo?.count || null,
+    startDate: status.startDateStruct?.date || '',
+    completionDate: status.primaryCompletionDateStruct?.date || ''
   };
 }
 
-// Categories for browsing
-const categories = [
-  { id: 'cancer', label: 'Cancer', icon: '🎗️', searchTerm: 'cancer', color: 'from-rose-500 to-pink-600' },
-  { id: 'heart', label: 'Heart Disease', icon: '❤️', searchTerm: 'heart disease OR cardiovascular', color: 'from-red-500 to-rose-600' },
-  { id: 'diabetes', label: 'Diabetes', icon: '💉', searchTerm: 'diabetes', color: 'from-blue-500 to-indigo-600' },
-  { id: 'mental', label: 'Mental Health', icon: '🧠', searchTerm: 'depression OR anxiety OR mental health', color: 'from-purple-500 to-violet-600' },
-  { id: 'neuro', label: 'Neurological', icon: '⚡', searchTerm: 'alzheimer OR parkinson OR multiple sclerosis', color: 'from-amber-500 to-orange-600' },
-  { id: 'autoimmune', label: 'Autoimmune', icon: '🛡️', searchTerm: 'autoimmune OR rheumatoid OR lupus', color: 'from-emerald-500 to-teal-600' },
-  { id: 'rare', label: 'Rare Diseases', icon: '🦋', searchTerm: 'rare disease OR orphan', color: 'from-pink-500 to-fuchsia-600' },
-  { id: 'infectious', label: 'Infectious Disease', icon: '🦠', searchTerm: 'infectious disease OR viral OR bacterial', color: 'from-lime-500 to-green-600' }
-];
+// Score trial match quality based on user criteria
+function scoreTrialMatch(trial, criteria) {
+  let score = 0;
+  let matchReasons = [];
 
-// Status badge colors - Professional medical styling
-const statusColors = {
-  'RECRUITING': 'bg-teal-50 text-teal-700 border-teal-200',
-  'ACTIVE_NOT_RECRUITING': 'bg-blue-50 text-blue-700 border-blue-200',
-  'COMPLETED': 'bg-slate-100 text-slate-600 border-slate-200',
-  'NOT_YET_RECRUITING': 'bg-amber-50 text-amber-700 border-amber-200'
-};
+  // Location match
+  if (criteria.location && trial.locations.length > 0) {
+    const locationLower = criteria.location.toLowerCase();
+    const hasNearbyLocation = trial.locations.some(loc =>
+      loc.city?.toLowerCase().includes(locationLower) ||
+      loc.state?.toLowerCase().includes(locationLower) ||
+      loc.country?.toLowerCase().includes(locationLower)
+    );
+    if (hasNearbyLocation) {
+      score += 30;
+      matchReasons.push('Location near you');
+    }
+  }
 
-// Animated number component
-function AnimatedNumber({ value, duration = 1000 }) {
-  const [displayValue, setDisplayValue] = useState(0);
+  // Phase preference
+  if (criteria.phasePreference === 'proven' && trial.phase.includes('3')) {
+    score += 20;
+    matchReasons.push('Phase 3 - more established');
+  } else if (criteria.phasePreference === 'cutting_edge' && (trial.phase.includes('1') || trial.phase.includes('2'))) {
+    score += 20;
+    matchReasons.push('Early phase - newest treatments');
+  }
 
-  useEffect(() => {
-    if (value === null) return;
+  // Has contact info (easier to reach)
+  if (trial.contact?.email || trial.contact?.phone) {
+    score += 15;
+    matchReasons.push('Direct contact available');
+  }
 
-    const startTime = Date.now();
-    const startValue = displayValue;
+  // Academic medical center (often higher quality)
+  if (trial.sponsorType === 'OTHER' || trial.sponsor?.toLowerCase().includes('university') ||
+      trial.sponsor?.toLowerCase().includes('hospital') || trial.sponsor?.toLowerCase().includes('medical center')) {
+    score += 10;
+    matchReasons.push('Academic institution');
+  }
 
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const current = Math.floor(startValue + (value - startValue) * eased);
+  // Currently enrolling with multiple locations
+  if (trial.locations.length >= 3) {
+    score += 10;
+    matchReasons.push('Multiple locations');
+  }
 
-      setDisplayValue(current);
+  // Has healthy volunteer option if user is caregiver researching prevention
+  if (criteria.purpose === 'prevention' && trial.eligibility.healthyVolunteers === 'Yes') {
+    score += 15;
+    matchReasons.push('Accepts healthy volunteers');
+  }
 
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      }
-    };
-
-    requestAnimationFrame(animate);
-  }, [value]);
-
-  return <span>{displayValue.toLocaleString()}</span>;
+  return { score, matchReasons };
 }
 
-// Professional Educational Onboarding Flow Component
-function OnboardingFlow({ onComplete }) {
+// Focused Onboarding Flow
+function FocusedOnboarding({ onComplete }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState({});
-  const [trialCount, setTrialCount] = useState(null);
-  const [isLoadingCount, setIsLoadingCount] = useState(false);
-  const [totalTrials, setTotalTrials] = useState(null);
   const [customCondition, setCustomCondition] = useState('');
-
-  // Fetch initial total count
-  useEffect(() => {
-    fetchTrialCount({}).then(count => setTotalTrials(count));
-  }, []);
 
   const steps = [
     {
       type: 'intro',
-      title: "Welcome to the Clinical Trials Explorer",
-      subtitle: "Your resource for learning about research opportunities",
-      content: (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-br from-blue-50 to-slate-50 rounded-2xl p-6 border border-blue-100">
-            <div className="text-center mb-6">
-              <div className="text-5xl font-light text-blue-900 mb-2">
-                {totalTrials ? <AnimatedNumber value={totalTrials} /> : '400,000+'}
-              </div>
-              <p className="text-slate-600">active clinical studies worldwide</p>
-            </div>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div className="p-3 bg-white rounded-xl border border-slate-100">
-                <div className="text-lg font-semibold text-blue-900">Learn</div>
-                <p className="text-xs text-slate-500">About new treatments</p>
-              </div>
-              <div className="p-3 bg-white rounded-xl border border-slate-100">
-                <div className="text-lg font-semibold text-blue-900">Explore</div>
-                <p className="text-xs text-slate-500">Your options</p>
-              </div>
-              <div className="p-3 bg-white rounded-xl border border-slate-100">
-                <div className="text-lg font-semibold text-blue-900">Discuss</div>
-                <p className="text-xs text-slate-500">With your doctor</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <div className="flex gap-3">
-              <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
-                <svg className="w-4 h-4 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm text-amber-800 font-medium mb-1">Important</p>
-                <p className="text-sm text-amber-700">This tool helps you learn about clinical trials. Always discuss any treatment decisions with your healthcare provider.</p>
-              </div>
-            </div>
-          </div>
-
-          <p className="text-slate-600 text-center text-sm">
-            Answer a few questions to find trials relevant to your situation. This usually takes about 2 minutes.
-          </p>
-        </div>
-      )
-    },
-    {
-      type: 'question',
-      key: 'userType',
-      title: "Who are you exploring trials for?",
-      subtitle: "This helps us personalize your experience",
-      education: "Clinical trial information can be valuable for patients, caregivers, and healthcare professionals alike. Understanding who is searching helps us present information in the most helpful way.",
-      options: [
-        { value: 'patient', label: "I'm a patient", icon: '👤', desc: 'Looking for options for myself' },
-        { value: 'caregiver', label: "I'm a caregiver or family member", icon: '👨‍👩‍👧', desc: 'Researching for a loved one' },
-        { value: 'provider', label: "I'm a healthcare provider", icon: '⚕️', desc: 'Exploring options for patients' },
-        { value: 'researcher', label: "I'm researching or learning", icon: '📚', desc: 'General interest or education' }
-      ]
-    },
-    {
-      type: 'question',
-      key: 'primaryGoal',
-      title: "What would you like to accomplish?",
-      subtitle: "Understanding your goals helps us guide you better",
-      education: "People explore clinical trials for many reasons — whether looking for new treatment options, wanting to stay informed about advances in care, or seeking ways to contribute to medical progress.",
-      options: [
-        { value: 'learn_options', label: 'Learn about treatment options', icon: '🔍', desc: 'Understand what experimental treatments exist' },
-        { value: 'find_specific', label: 'Find a specific trial', icon: '🎯', desc: 'I know what I\'m looking for' },
-        { value: 'discuss_doctor', label: 'Prepare for a doctor visit', icon: '💬', desc: 'Gather information to discuss with my provider' },
-        { value: 'general_info', label: 'Learn how trials work', icon: '📖', desc: 'Understand the clinical trial process' }
-      ]
-    },
-    {
-      type: 'question',
-      key: 'treatmentStatus',
-      title: "What is the current treatment situation?",
-      subtitle: "This helps us identify the most relevant opportunities",
-      education: "Clinical trials are available at every stage of care — from prevention studies for those at risk, to trials for newly diagnosed patients, to options for those who've tried other treatments.",
-      options: [
-        { value: 'newly_diagnosed', label: 'Newly diagnosed', icon: '📋', desc: 'Recently received a diagnosis' },
-        { value: 'current_treatment', label: 'Currently in treatment', icon: '💊', desc: 'Undergoing treatment now' },
-        { value: 'seeking_alternatives', label: 'Looking for alternatives', icon: '🔄', desc: 'Current treatment isn\'t working well' },
-        { value: 'prevention', label: 'Prevention or early detection', icon: '🛡️', desc: 'Interested in preventive studies' },
-        { value: 'not_applicable', label: 'Not applicable', icon: '➡️', desc: 'Just exploring generally' }
-      ]
+      title: "Find Your Best Trial Matches",
+      subtitle: "Answer 4 quick questions to get personalized recommendations"
     },
     {
       type: 'question',
       key: 'condition',
-      title: "What health condition are you researching?",
-      subtitle: "Select a category or enter a specific condition",
-      education: "Clinical trials cover virtually every health condition. Breakthrough treatments for many conditions — from cancer immunotherapies to gene therapies — started as clinical trials.",
+      title: "What condition are you researching?",
+      subtitle: "Select a category or type your specific condition",
       options: [
-        { value: 'cancer', label: 'Cancer', icon: '🎗️', desc: 'Oncology trials' },
-        { value: 'heart disease OR cardiovascular', label: 'Heart & Cardiovascular', icon: '❤️', desc: 'Cardiac conditions' },
-        { value: 'diabetes', label: 'Diabetes & Metabolic', icon: '💉', desc: 'Metabolic disorders' },
-        { value: 'depression OR anxiety OR mental health', label: 'Mental Health', icon: '🧠', desc: 'Psychiatric conditions' },
-        { value: 'alzheimer OR parkinson OR neurological', label: 'Neurological', icon: '⚡', desc: 'Brain & nervous system' },
-        { value: 'autoimmune OR rheumatoid', label: 'Autoimmune & Inflammatory', icon: '🛡️', desc: 'Immune system conditions' }
+        { value: 'breast cancer', label: 'Breast Cancer', icon: '🎗️' },
+        { value: 'lung cancer', label: 'Lung Cancer', icon: '🫁' },
+        { value: 'type 2 diabetes', label: 'Type 2 Diabetes', icon: '💉' },
+        { value: 'alzheimer', label: "Alzheimer's Disease", icon: '🧠' },
+        { value: 'rheumatoid arthritis', label: 'Rheumatoid Arthritis', icon: '🦴' },
+        { value: 'depression', label: 'Depression', icon: '💭' }
       ],
       allowCustom: true,
-      customPlaceholder: "Or type a specific condition (e.g., 'breast cancer', 'lupus', 'asthma')..."
+      customPlaceholder: "Or type your specific condition..."
     },
     {
       type: 'question',
-      key: 'age',
-      title: "What is the patient's age group?",
-      subtitle: "Trials have specific eligibility requirements",
-      education: "Age requirements ensure treatments are tested appropriately for different populations. Many trials welcome a range of ages, and there are specialized studies for pediatric, adult, and geriatric patients.",
+      key: 'location',
+      title: "Where would you like to receive treatment?",
+      subtitle: "Enter a city, state, or leave blank for all locations",
+      freeText: true,
+      placeholder: "e.g., Boston, MA or California"
+    },
+    {
+      type: 'question',
+      key: 'phasePreference',
+      title: "What type of treatment interests you?",
+      subtitle: "This helps us prioritize trials",
       options: [
-        { value: 'child', label: 'Child (under 18)', icon: '👶', desc: 'Pediatric trials' },
-        { value: 'adult', label: 'Adult (18-64)', icon: '👤', desc: 'Adult trials' },
-        { value: 'senior', label: 'Senior (65+)', icon: '👴', desc: 'Older adult trials' },
-        { value: 'any', label: 'Prefer not to specify', icon: '👥', desc: 'Show all age groups' }
+        {
+          value: 'cutting_edge',
+          label: 'Newest innovations',
+          icon: '🔬',
+          desc: 'Early-phase trials with experimental treatments'
+        },
+        {
+          value: 'proven',
+          label: 'More established treatments',
+          icon: '✅',
+          desc: 'Later-phase trials with more safety data'
+        },
+        {
+          value: 'any',
+          label: 'Show me all options',
+          icon: '📋',
+          desc: "I want to see different types"
+        }
       ]
     },
     {
-      type: 'multiselect',
-      key: 'priorities',
-      title: "What matters most to you?",
-      subtitle: "Select all that apply — this helps us highlight relevant information",
-      education: "Everyone's priorities are different. Understanding what's important to you helps us present trial information in the most useful way.",
+      type: 'question',
+      key: 'purpose',
+      title: "What best describes your situation?",
+      subtitle: "This helps us find the most relevant trials",
       options: [
-        { value: 'location', label: 'Close to home', icon: '📍', desc: 'Minimize travel' },
-        { value: 'cost', label: 'No cost for treatment', icon: '💵', desc: 'Free study medication/care' },
-        { value: 'time', label: 'Minimal time commitment', icon: '⏰', desc: 'Fewer visits required' },
-        { value: 'cutting_edge', label: 'Latest innovations', icon: '🔬', desc: 'Newest treatments' },
-        { value: 'standard_care', label: 'Option for standard care', icon: '⚖️', desc: 'May receive proven treatment' },
-        { value: 'quality_of_life', label: 'Quality of life focus', icon: '🌟', desc: 'Side effect management' }
+        {
+          value: 'active_treatment',
+          label: 'Looking for treatment options',
+          icon: '💊',
+          desc: "Currently dealing with this condition"
+        },
+        {
+          value: 'prevention',
+          label: 'Interested in prevention',
+          icon: '🛡️',
+          desc: 'Want to prevent or detect early'
+        },
+        {
+          value: 'alternatives',
+          label: 'Current treatment not working',
+          icon: '🔄',
+          desc: 'Need different options'
+        }
       ]
-    },
-    {
-      type: 'summary',
-      title: "Your Personalized Results",
-      subtitle: "Based on your responses"
     }
   ];
 
   const currentStep = steps[step];
-  const isLastStep = step === steps.length - 1;
-  const progress = ((step + 1) / steps.length) * 100;
-
-  // Update trial count when answers change
-  useEffect(() => {
-    if (answers.condition) {
-      setIsLoadingCount(true);
-      fetchTrialCount({
-        condition: answers.condition,
-        ageRange: answers.age !== 'any' ? answers.age : null
-      }).then(count => {
-        setTrialCount(count);
-        setIsLoadingCount(false);
-      });
-    }
-  }, [answers.condition, answers.age]);
+  const progress = ((step) / (steps.length - 1)) * 100;
 
   const handleSelect = (key, value) => {
-    const newAnswers = { ...answers, [key]: value };
-    setAnswers(newAnswers);
-
-    setTimeout(() => {
-      if (step < steps.length - 1) {
-        setStep(step + 1);
-      }
-    }, 300);
+    setAnswers({ ...answers, [key]: value });
+    setTimeout(() => setStep(step + 1), 200);
   };
 
-  const handleMultiSelect = (key, value) => {
-    const current = answers[key] || [];
-    const newValue = current.includes(value)
-      ? current.filter(v => v !== value)
-      : [...current, value];
-    setAnswers({ ...answers, [key]: newValue });
+  const handleFreeText = (key, value) => {
+    setAnswers({ ...answers, [key]: value });
+  };
+
+  const handleNext = () => {
+    if (step < steps.length - 1) {
+      setStep(step + 1);
+    } else {
+      onComplete(answers);
+    }
   };
 
   const handleBack = () => {
     if (step > 0) setStep(step - 1);
   };
 
-  const handleComplete = () => {
-    onComplete(answers);
-  };
+  const isLastStep = step === steps.length - 1;
+  const canProceed = currentStep.type === 'intro' ||
+    (currentStep.freeText) ||
+    answers[currentStep.key];
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
-        {/* Header with Progress - Professional Medical Styling */}
-        <div className="bg-gradient-to-r from-blue-900 to-blue-800 px-6 py-5 shrink-0">
+      <div className="bg-white rounded-2xl max-w-xl w-full overflow-hidden shadow-2xl">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-900 to-blue-800 px-6 py-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-white">Clinical Trials Explorer</h3>
-                <p className="text-blue-200 text-sm">Step {step + 1} of {steps.length}</p>
+                <h3 className="font-semibold text-white">Trial Matcher</h3>
+                <p className="text-blue-200 text-sm">
+                  {step === 0 ? 'Get started' : `Question ${step} of ${steps.length - 1}`}
+                </p>
               </div>
             </div>
-
-            {/* Live Trial Counter */}
-            {answers.condition && (
-              <div className="bg-white/10 rounded-lg px-4 py-2 text-right">
-                <div className="text-blue-200 text-xs">Matching trials</div>
-                <div className="text-white font-semibold text-lg">
-                  {isLoadingCount ? (
-                    <span className="animate-pulse">...</span>
-                  ) : trialCount !== null ? (
-                    <AnimatedNumber value={trialCount} />
-                  ) : '—'}
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Progress Bar */}
-          <div className="h-1.5 bg-blue-950/50 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-teal-400 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+          {step > 0 && (
+            <div className="h-1.5 bg-blue-950/50 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-teal-400 rounded-full transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-6">
           <h2 className="text-2xl font-semibold text-slate-800 mb-2">{currentStep.title}</h2>
           <p className="text-slate-500 mb-6">{currentStep.subtitle}</p>
 
-          {/* Educational Tip */}
-          {currentStep.education && (
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
-              <div className="flex gap-3">
-                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                  <svg className="w-3.5 h-3.5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+          {/* Intro */}
+          {currentStep.type === 'intro' && (
+            <div className="space-y-4">
+              <div className="bg-gradient-to-br from-teal-50 to-blue-50 rounded-xl p-5 border border-teal-100">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center shrink-0">
+                    <span className="text-2xl">🎯</span>
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-slate-800 mb-1">We'll show you 3-4 best matches</h4>
+                    <p className="text-sm text-slate-600">
+                      Instead of overwhelming you with hundreds of trials, we'll identify the ones most worth your time to explore.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-blue-800">{currentStep.education}</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 bg-slate-50 rounded-xl">
+                  <div className="text-2xl mb-1">📍</div>
+                  <p className="text-xs text-slate-600">Location-matched</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-xl">
+                  <div className="text-2xl mb-1">✓</div>
+                  <p className="text-xs text-slate-600">Clear next steps</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-xl">
+                  <div className="text-2xl mb-1">📞</div>
+                  <p className="text-xs text-slate-600">Contact info</p>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-sm text-amber-800">
+                  <strong>Important:</strong> This tool helps you learn about trials. Always discuss with your doctor before participating.
+                </p>
               </div>
             </div>
           )}
 
-          {/* Intro Content */}
-          {currentStep.type === 'intro' && currentStep.content}
-
-          {/* Question Options */}
-          {currentStep.type === 'question' && (
-            <div className="space-y-3">
+          {/* Question with options */}
+          {currentStep.type === 'question' && currentStep.options && (
+            <div className="space-y-2">
               {currentStep.options.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => handleSelect(currentStep.key, opt.value)}
                   className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
                     answers[currentStep.key] === opt.value
-                      ? 'border-blue-600 bg-blue-50 shadow-sm'
+                      ? 'border-blue-600 bg-blue-50'
                       : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
@@ -410,7 +357,7 @@ function OnboardingFlow({ onComplete }) {
                     <span className="text-2xl">{opt.icon}</span>
                     <div className="flex-1">
                       <p className="font-medium text-slate-800">{opt.label}</p>
-                      <p className="text-sm text-slate-500">{opt.desc}</p>
+                      {opt.desc && <p className="text-sm text-slate-500">{opt.desc}</p>}
                     </div>
                     {answers[currentStep.key] === opt.value && (
                       <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
@@ -451,150 +398,25 @@ function OnboardingFlow({ onComplete }) {
             </div>
           )}
 
-          {/* Multi-select Options */}
-          {currentStep.type === 'multiselect' && (
-            <div className="space-y-3">
-              {currentStep.options.map((opt) => {
-                const isSelected = (answers[currentStep.key] || []).includes(opt.value);
-                return (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleMultiSelect(currentStep.key, opt.value)}
-                    className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
-                      isSelected
-                        ? 'border-blue-600 bg-blue-50 shadow-sm'
-                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{opt.icon}</span>
-                      <div className="flex-1">
-                        <p className="font-medium text-slate-800">{opt.label}</p>
-                        <p className="text-sm text-slate-500">{opt.desc}</p>
-                      </div>
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                        isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-300'
-                      }`}>
-                        {isSelected && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-
-              <button
-                onClick={() => setStep(step + 1)}
-                className="w-full mt-4 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
-              >
-                Continue
-              </button>
-            </div>
-          )}
-
-          {/* Summary */}
-          {currentStep.type === 'summary' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-br from-teal-50 to-blue-50 rounded-2xl p-6 text-center border border-teal-100">
-                <div className="text-5xl font-light text-blue-900 mb-2">
-                  {isLoadingCount ? (
-                    <span className="animate-pulse">Loading...</span>
-                  ) : trialCount !== null ? (
-                    <AnimatedNumber value={trialCount} duration={1500} />
-                  ) : '—'}
-                </div>
-                <p className="text-slate-600">clinical trials match your criteria</p>
-              </div>
-
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                <h4 className="font-medium text-slate-800 mb-3">Your search summary</h4>
-                <div className="space-y-2 text-sm">
-                  {answers.userType && (
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
-                      <span className="text-slate-600">
-                        Searching as: {answers.userType === 'patient' ? 'Patient' :
-                          answers.userType === 'caregiver' ? 'Caregiver/Family' :
-                          answers.userType === 'provider' ? 'Healthcare Provider' : 'Researcher'}
-                      </span>
-                    </div>
-                  )}
-                  {answers.condition && (
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
-                      <span className="text-slate-600">Condition: {answers.condition}</span>
-                    </div>
-                  )}
-                  {answers.age && answers.age !== 'any' && (
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
-                      <span className="text-slate-600">Age group: {
-                        answers.age === 'child' ? 'Under 18' :
-                        answers.age === 'adult' ? '18-64' : '65+'
-                      }</span>
-                    </div>
-                  )}
-                  {answers.priorities && answers.priorities.length > 0 && (
-                    <div className="flex items-start gap-2">
-                      <span className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-1.5"></span>
-                      <span className="text-slate-600">Priorities: {answers.priorities.map(p => {
-                        const labels = {
-                          location: 'Close to home',
-                          cost: 'No cost',
-                          time: 'Minimal time',
-                          cutting_edge: 'Latest innovations',
-                          standard_care: 'Standard care option',
-                          quality_of_life: 'Quality of life'
-                        };
-                        return labels[p];
-                      }).join(', ')}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm text-amber-800 font-medium mb-1">Remember</p>
-                    <p className="text-sm text-amber-700">
-                      Use this information to have an informed conversation with your doctor.
-                      Only your healthcare provider can determine if a clinical trial is right for you.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm text-blue-800 font-medium mb-1">What's next?</p>
-                    <p className="text-sm text-blue-700">
-                      Browse trials to learn about available research studies. Click any trial to see details,
-                      eligibility requirements, and locations. Save interesting trials to discuss with your healthcare team.
-                    </p>
-                  </div>
-                </div>
-              </div>
+          {/* Free text input */}
+          {currentStep.type === 'question' && currentStep.freeText && (
+            <div className="space-y-4">
+              <input
+                type="text"
+                placeholder={currentStep.placeholder}
+                value={answers[currentStep.key] || ''}
+                onChange={(e) => handleFreeText(currentStep.key, e.target.value)}
+                className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-lg"
+              />
+              <p className="text-sm text-slate-500">
+                💡 Tip: Being specific helps us find trials near you
+              </p>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0 bg-slate-50">
+        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
           {step > 0 ? (
             <button
               onClick={handleBack}
@@ -605,28 +427,14 @@ function OnboardingFlow({ onComplete }) {
               </svg>
               Back
             </button>
-          ) : (
-            <div></div>
-          )}
+          ) : <div />}
 
-          {currentStep.type === 'intro' && (
+          {(currentStep.type === 'intro' || currentStep.freeText) && (
             <button
-              onClick={() => setStep(step + 1)}
+              onClick={handleNext}
               className="px-6 py-3 bg-blue-900 text-white font-medium rounded-xl hover:bg-blue-800 transition-colors flex items-center gap-2"
             >
-              Get Started
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          )}
-
-          {currentStep.type === 'summary' && (
-            <button
-              onClick={handleComplete}
-              className="px-6 py-3 bg-teal-600 text-white font-medium rounded-xl hover:bg-teal-700 transition-colors flex items-center gap-2"
-            >
-              Explore Trials
+              {currentStep.type === 'intro' ? 'Get Started' : (isLastStep ? 'Find My Matches' : 'Continue')}
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
@@ -638,76 +446,441 @@ function OnboardingFlow({ onComplete }) {
   );
 }
 
-// Trial Card Component - Professional Medical Styling
-function TrialCard({ trial, onClick }) {
-  const statusLabel = trial.status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+// Results page showing 3-4 matched trials
+function MatchedTrialsResults({ criteria, onStartOver }) {
+  const [trials, setTrials] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedTrial, setSelectedTrial] = useState(null);
+  const [totalFound, setTotalFound] = useState(0);
+
+  useEffect(() => {
+    async function loadTrials() {
+      setIsLoading(true);
+
+      const result = await fetchMatchingTrials({
+        condition: criteria.condition,
+        location: criteria.location,
+        phase: criteria.phasePreference,
+        pageSize: 15 // Fetch more to score and pick best
+      });
+
+      // Score and sort trials
+      const scoredTrials = result.trials.map(trial => ({
+        ...trial,
+        ...scoreTrialMatch(trial, criteria)
+      }));
+
+      // Sort by score and take top 4
+      scoredTrials.sort((a, b) => b.score - a.score);
+      const topTrials = scoredTrials.slice(0, 4);
+
+      setTrials(topTrials);
+      setTotalFound(result.totalCount);
+      setIsLoading(false);
+    }
+
+    loadTrials();
+  }, [criteria]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <h3 className="text-lg font-medium text-slate-700">Finding your best matches...</h3>
+          <p className="text-slate-500 mt-1">Analyzing trials for {criteria.condition}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div
-      onClick={onClick}
-      className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-lg hover:border-slate-300 transition-all cursor-pointer group"
-    >
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <span className={`px-2.5 py-1 rounded-md text-xs font-medium border ${statusColors[trial.status] || 'bg-slate-100 text-slate-600'}`}>
-          {statusLabel}
-        </span>
-        <span className="text-xs text-slate-400 font-mono">{trial.id}</span>
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-slate-800">Your Trial Matches</h1>
+              <p className="text-sm text-slate-500">
+                Top {trials.length} of {totalFound.toLocaleString()} trials for {criteria.condition}
+              </p>
+            </div>
+            <button
+              onClick={onStartOver}
+              className="px-4 py-2 text-blue-700 hover:bg-blue-50 rounded-lg font-medium transition-colors"
+            >
+              New Search
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 py-8">
+        {/* Search Summary */}
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm text-blue-800 font-medium mb-1">How we selected these trials</p>
+              <p className="text-sm text-blue-700">
+                We analyzed {totalFound.toLocaleString()} recruiting trials and selected these {trials.length} based on:
+                {criteria.location && ` location (${criteria.location}),`}
+                {criteria.phasePreference === 'cutting_edge' && ' newest treatments,'}
+                {criteria.phasePreference === 'proven' && ' established treatments,'}
+                {' '}contact availability, and institutional quality.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Trial Cards */}
+        <div className="space-y-6">
+          {trials.map((trial, index) => (
+            <MatchedTrialCard
+              key={trial.id}
+              trial={trial}
+              rank={index + 1}
+              onViewDetails={() => setSelectedTrial(trial)}
+            />
+          ))}
+        </div>
+
+        {trials.length === 0 && (
+          <div className="bg-white rounded-xl p-10 text-center border border-slate-200">
+            <svg className="w-14 h-14 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 className="text-lg font-medium text-slate-800 mb-2">No matching trials found</h3>
+            <p className="text-slate-600 mb-4">Try broadening your search criteria</p>
+            <button onClick={onStartOver} className="px-5 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors">
+              Try Again
+            </button>
+          </div>
+        )}
+
+        {/* What's Next Section */}
+        {trials.length > 0 && (
+          <div className="mt-10 bg-gradient-to-br from-teal-50 to-blue-50 rounded-2xl p-6 border border-teal-100">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">What to do next</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center mb-3">
+                  <span className="text-xl">1️⃣</span>
+                </div>
+                <h4 className="font-medium text-slate-800 mb-1">Review these trials</h4>
+                <p className="text-sm text-slate-600">Click "View Details" to understand each trial's requirements</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center mb-3">
+                  <span className="text-xl">2️⃣</span>
+                </div>
+                <h4 className="font-medium text-slate-800 mb-1">Talk to your doctor</h4>
+                <p className="text-sm text-slate-600">Print or save trial info to discuss at your next appointment</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center mb-3">
+                  <span className="text-xl">3️⃣</span>
+                </div>
+                <h4 className="font-medium text-slate-800 mb-1">Reach out</h4>
+                <p className="text-sm text-slate-600">Use the contact info to ask questions or express interest</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Trial Detail Modal */}
+      {selectedTrial && (
+        <TrialDetailModal
+          trial={selectedTrial}
+          criteria={criteria}
+          onClose={() => setSelectedTrial(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Individual matched trial card
+function MatchedTrialCard({ trial, rank, onViewDetails }) {
+  const phaseColors = {
+    'PHASE1': 'bg-purple-100 text-purple-700',
+    'PHASE2': 'bg-blue-100 text-blue-700',
+    'PHASE3': 'bg-teal-100 text-teal-700',
+    'PHASE4': 'bg-green-100 text-green-700',
+  };
+
+  const getPhaseColor = () => {
+    if (trial.phase.includes('1')) return phaseColors['PHASE1'];
+    if (trial.phase.includes('2')) return phaseColors['PHASE2'];
+    if (trial.phase.includes('3')) return phaseColors['PHASE3'];
+    if (trial.phase.includes('4')) return phaseColors['PHASE4'];
+    return 'bg-slate-100 text-slate-700';
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-slate-50 to-white px-5 py-4 border-b border-slate-100">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-900 text-white rounded-lg flex items-center justify-center font-semibold">
+              #{rank}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPhaseColor()}`}>
+                  {trial.phase || 'Phase N/A'}
+                </span>
+                <span className="text-xs text-slate-400 font-mono">{trial.id}</span>
+              </div>
+              <h3 className="font-medium text-slate-800 leading-snug">{trial.title}</h3>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <h3 className="font-medium text-slate-800 mb-2 line-clamp-2 group-hover:text-blue-900 transition-colors">
-        {trial.title}
-      </h3>
+      {/* Body */}
+      <div className="p-5">
+        {/* Match reasons */}
+        {trial.matchReasons && trial.matchReasons.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {trial.matchReasons.map((reason, i) => (
+              <span key={i} className="px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full flex items-center gap-1">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                {reason}
+              </span>
+            ))}
+          </div>
+        )}
 
-      <p className="text-sm text-slate-500 mb-2">{trial.conditions.slice(0, 2).join(', ')}</p>
+        <p className="text-slate-600 text-sm mb-4 line-clamp-2">{trial.description}</p>
 
-      <p className="text-sm text-slate-600 line-clamp-2 mb-4">{trial.description}</p>
-
-      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-        <div className="flex items-center gap-1.5 text-xs text-slate-500">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-          </svg>
-          {trial.locations.length} location{trial.locations.length !== 1 ? 's' : ''}
+        {/* Quick Info */}
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+            <span>{trial.sponsor}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            </svg>
+            <span>{trial.locations.length} location{trial.locations.length !== 1 ? 's' : ''}</span>
+          </div>
         </div>
-        <span className="text-blue-700 text-sm font-medium group-hover:translate-x-1 transition-transform flex items-center gap-1">
-          View details
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+
+        {/* Your Next Steps */}
+        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+          <h4 className="font-medium text-slate-700 text-sm mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Your Next Steps
+          </h4>
+          <div className="space-y-2">
+            <div className="flex items-start gap-2 text-sm">
+              <span className="text-teal-600 font-medium">1.</span>
+              <span className="text-slate-600">
+                <strong>Review eligibility</strong> – Check if age ({trial.eligibility.minAge} - {trial.eligibility.maxAge}) and other criteria fit
+              </span>
+            </div>
+            {trial.contact?.phone && (
+              <div className="flex items-start gap-2 text-sm">
+                <span className="text-teal-600 font-medium">2.</span>
+                <span className="text-slate-600">
+                  <strong>Call to ask questions</strong> – {trial.contact.phone}
+                </span>
+              </div>
+            )}
+            {trial.contact?.email && (
+              <div className="flex items-start gap-2 text-sm">
+                <span className="text-teal-600 font-medium">{trial.contact?.phone ? '3' : '2'}.</span>
+                <span className="text-slate-600">
+                  <strong>Email for more info</strong> – {trial.contact.email}
+                </span>
+              </div>
+            )}
+            {!trial.contact?.phone && !trial.contact?.email && (
+              <div className="flex items-start gap-2 text-sm">
+                <span className="text-teal-600 font-medium">2.</span>
+                <span className="text-slate-600">
+                  <strong>Discuss with your doctor</strong> – They can help contact the study team
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+        <a
+          href={`https://clinicaltrials.gov/study/${trial.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-slate-500 hover:text-blue-700 flex items-center gap-1"
+        >
+          View on ClinicalTrials.gov
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
           </svg>
-        </span>
+        </a>
+        <button
+          onClick={onViewDetails}
+          className="px-4 py-2 bg-blue-900 text-white text-sm font-medium rounded-lg hover:bg-blue-800 transition-colors"
+        >
+          View Full Details
+        </button>
       </div>
     </div>
   );
 }
 
-// Trial Detail Modal - Professional Medical Styling
-function TrialDetail({ trial, onClose }) {
-  if (!trial) return null;
+// Detailed trial modal
+function TrialDetailModal({ trial, criteria, onClose }) {
+  const printRef = React.useRef();
+
+  const handlePrint = () => {
+    const content = printRef.current;
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${trial.title} - Trial Information</title>
+          <style>
+            body { font-family: system-ui, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+            h1 { font-size: 20px; margin-bottom: 8px; }
+            h2 { font-size: 16px; margin-top: 24px; margin-bottom: 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+            p { margin: 8px 0; line-height: 1.5; }
+            .meta { color: #666; font-size: 14px; }
+            .section { margin-bottom: 20px; }
+            ul { margin: 8px 0; padding-left: 20px; }
+            li { margin: 4px 0; }
+          </style>
+        </head>
+        <body>
+          <h1>${trial.title}</h1>
+          <p class="meta">NCT ID: ${trial.id} | Status: Recruiting | Phase: ${trial.phase}</p>
+          <p class="meta">Sponsor: ${trial.sponsor}</p>
+
+          <div class="section">
+            <h2>About This Study</h2>
+            <p>${trial.description}</p>
+          </div>
+
+          <div class="section">
+            <h2>Treatment Being Studied</h2>
+            <p>${trial.interventionNames}</p>
+          </div>
+
+          <div class="section">
+            <h2>Eligibility</h2>
+            <p>Ages: ${trial.eligibility.minAge} to ${trial.eligibility.maxAge}</p>
+            <p>Sex: ${trial.eligibility.sex}</p>
+          </div>
+
+          <div class="section">
+            <h2>Locations (${trial.locations.length})</h2>
+            <ul>
+              ${trial.locations.map(loc => `<li>${loc.facility} - ${[loc.city, loc.state, loc.country].filter(Boolean).join(', ')}</li>`).join('')}
+            </ul>
+          </div>
+
+          ${trial.contact ? `
+          <div class="section">
+            <h2>Contact Information</h2>
+            ${trial.contact.name ? `<p>Name: ${trial.contact.name}</p>` : ''}
+            ${trial.contact.phone ? `<p>Phone: ${trial.contact.phone}</p>` : ''}
+            ${trial.contact.email ? `<p>Email: ${trial.contact.email}</p>` : ''}
+          </div>
+          ` : ''}
+
+          <div class="section">
+            <h2>Questions to Ask Your Doctor</h2>
+            <ul>
+              <li>Am I eligible for this trial based on my medical history?</li>
+              <li>How might this treatment interact with my current medications?</li>
+              <li>What are the potential benefits and risks?</li>
+              <li>How often would I need to visit the study site?</li>
+              <li>What happens if I want to leave the trial?</li>
+            </ul>
+          </div>
+
+          <p class="meta" style="margin-top: 40px; border-top: 1px solid #ddd; padding-top: 20px;">
+            Printed from Clinical Trials Explorer | Full details: https://clinicaltrials.gov/study/${trial.id}
+          </p>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
         className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
         onClick={e => e.stopPropagation()}
+        ref={printRef}
       >
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
-            <span className={`px-2.5 py-1 rounded-md text-xs font-medium border ${statusColors[trial.status] || 'bg-slate-100'}`}>
-              {trial.status.replace(/_/g, ' ')}
+            <span className="px-2.5 py-1 bg-teal-50 text-teal-700 rounded-md text-xs font-medium">
+              Recruiting
             </span>
             <span className="text-sm text-slate-400 font-mono">{trial.id}</span>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600"
+              title="Print for doctor visit"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+            </button>
+            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+              <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="p-6">
           <h2 className="text-xl font-semibold text-slate-800 mb-2">{trial.title}</h2>
-          <p className="text-slate-500 mb-6">Sponsored by {trial.sponsor}</p>
+          <p className="text-slate-500 mb-6">Sponsored by {trial.sponsor} | Phase: {trial.phase}</p>
+
+          {/* Match indicators */}
+          {trial.matchReasons && trial.matchReasons.length > 0 && (
+            <div className="bg-teal-50 border border-teal-100 rounded-xl p-4 mb-6">
+              <h4 className="font-medium text-teal-800 mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Why this trial matches your search
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {trial.matchReasons.map((reason, i) => (
+                  <span key={i} className="px-3 py-1 bg-white text-teal-700 text-sm rounded-full border border-teal-200">
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* About Section */}
           <div className="bg-blue-50 rounded-xl p-5 mb-6 border border-blue-100">
@@ -715,41 +888,55 @@ function TrialDetail({ trial, onClose }) {
             <p className="text-slate-600 text-sm">{trial.description}</p>
           </div>
 
-          {/* Details Grid */}
-          <div className="grid md:grid-cols-2 gap-4 mb-6">
+          {/* Treatment */}
+          <div className="mb-6">
+            <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
+              <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              </svg>
+              Treatment Being Studied
+            </h3>
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-              <h4 className="font-medium text-slate-800 mb-2 flex items-center gap-2 text-sm">
-                <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                </svg>
-                Treatment
-              </h4>
-              <p className="text-slate-600 text-sm">{trial.interventions}</p>
+              <p className="text-slate-700">{trial.interventionNames}</p>
             </div>
+          </div>
+
+          {/* Eligibility */}
+          <div className="mb-6">
+            <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
+              <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              Eligibility Requirements
+            </h3>
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-              <h4 className="font-medium text-slate-800 mb-2 flex items-center gap-2 text-sm">
-                <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                Eligibility
-              </h4>
-              <p className="text-slate-600 text-sm">
-                Ages: {trial.eligibility.minAge} - {trial.eligibility.maxAge}<br />
-                Sex: {trial.eligibility.sex}
-              </p>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <p className="text-slate-500">Age Range</p>
+                  <p className="font-medium text-slate-700">{trial.eligibility.minAge} - {trial.eligibility.maxAge}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Sex</p>
+                  <p className="font-medium text-slate-700">{trial.eligibility.sex}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Healthy Volunteers</p>
+                  <p className="font-medium text-slate-700">{trial.eligibility.healthyVolunteers}</p>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Locations */}
           {trial.locations.length > 0 && (
             <div className="mb-6">
-              <h4 className="font-medium text-slate-800 mb-3 flex items-center gap-2 text-sm">
-                <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 </svg>
-                Study Locations
-              </h4>
-              <div className="space-y-2">
+                Study Locations ({trial.locations.length})
+              </h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
                 {trial.locations.map((loc, idx) => (
                   <div key={idx} className="bg-slate-50 rounded-lg p-3 border border-slate-100">
                     <p className="font-medium text-slate-700 text-sm">{loc.facility}</p>
@@ -760,22 +947,69 @@ function TrialDetail({ trial, onClose }) {
             </div>
           )}
 
-          {/* Disclaimer */}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
-            <div className="flex gap-3">
-              <div className="w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
-                <svg className="w-3.5 h-3.5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          {/* Contact */}
+          {trial.contact && (trial.contact.phone || trial.contact.email) && (
+            <div className="mb-6">
+              <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
+                Contact Information
+              </h3>
+              <div className="bg-teal-50 rounded-xl p-4 border border-teal-100">
+                {trial.contact.name && (
+                  <p className="text-sm text-slate-700 mb-1"><strong>Contact:</strong> {trial.contact.name}</p>
+                )}
+                {trial.contact.phone && (
+                  <p className="text-sm text-slate-700 mb-1">
+                    <strong>Phone:</strong>{' '}
+                    <a href={`tel:${trial.contact.phone}`} className="text-blue-700 hover:underline">
+                      {trial.contact.phone}
+                    </a>
+                  </p>
+                )}
+                {trial.contact.email && (
+                  <p className="text-sm text-slate-700">
+                    <strong>Email:</strong>{' '}
+                    <a href={`mailto:${trial.contact.email}`} className="text-blue-700 hover:underline">
+                      {trial.contact.email}
+                    </a>
+                  </p>
+                )}
               </div>
-              <p className="text-sm text-amber-700">
-                <strong>Talk to your doctor</strong> before considering this trial. Eligibility is determined by the study team based on medical evaluation.
-              </p>
             </div>
+          )}
+
+          {/* Questions to ask */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
+            <h4 className="font-medium text-amber-800 mb-3 flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Questions to Ask Your Doctor
+            </h4>
+            <ul className="text-sm text-amber-800 space-y-2">
+              <li className="flex items-start gap-2">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-2 shrink-0"></span>
+                Am I eligible for this trial based on my medical history?
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-2 shrink-0"></span>
+                How might this treatment interact with my current medications?
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-2 shrink-0"></span>
+                What are the potential benefits and risks compared to standard treatment?
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-2 shrink-0"></span>
+                How often would I need to visit the study site?
+              </li>
+            </ul>
           </div>
 
-          {/* CTA */}
-          <div className="flex gap-3">
+          {/* CTAs */}
+          <div className="flex flex-col sm:flex-row gap-3">
             <a
               href={`https://clinicaltrials.gov/study/${trial.id}`}
               target="_blank"
@@ -784,305 +1018,51 @@ function TrialDetail({ trial, onClose }) {
             >
               View Full Details on ClinicalTrials.gov
             </a>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Loading Skeleton
-function TrialSkeleton() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 animate-pulse">
-      <div className="flex justify-between mb-3">
-        <div className="h-6 w-20 bg-slate-200 rounded-md"></div>
-        <div className="h-4 w-24 bg-slate-100 rounded"></div>
-      </div>
-      <div className="h-5 w-full bg-slate-200 rounded mb-2"></div>
-      <div className="h-5 w-3/4 bg-slate-200 rounded mb-3"></div>
-      <div className="h-4 w-1/2 bg-slate-100 rounded mb-4"></div>
-      <div className="h-12 w-full bg-slate-100 rounded"></div>
-    </div>
-  );
-}
-
-// Main Component - Professional Medical Styling
-export default function TrialFinder() {
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [onboardingAnswers, setOnboardingAnswers] = useState(null);
-  const [view, setView] = useState('home');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [trials, setTrials] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedTrial, setSelectedTrial] = useState(null);
-
-  // Check for returning visitor
-  useEffect(() => {
-    const savedAnswers = localStorage.getItem('trialFinderAnswers');
-    if (savedAnswers) {
-      setOnboardingAnswers(JSON.parse(savedAnswers));
-    } else {
-      setShowOnboarding(true);
-    }
-  }, []);
-
-  const handleOnboardingComplete = async (answers) => {
-    setOnboardingAnswers(answers);
-    localStorage.setItem('trialFinderAnswers', JSON.stringify(answers));
-    setShowOnboarding(false);
-
-    // Automatically search with the onboarding answers
-    if (answers.condition) {
-      handleSearch(answers.condition);
-    }
-  };
-
-  const handleSearch = async (query) => {
-    if (!query.trim()) return;
-
-    setIsLoading(true);
-    setView('results');
-    setSearchQuery(query);
-
-    const result = await fetchTrials({ condition: query, pageSize: 20 });
-    setTrials(result.trials);
-    setTotalCount(result.totalCount);
-    setIsLoading(false);
-  };
-
-  const handleCategoryClick = (category) => {
-    handleSearch(category.searchTerm);
-  };
-
-  const resetToHome = () => {
-    setView('home');
-    setSearchQuery('');
-    setTrials([]);
-  };
-
-  const startNewSearch = () => {
-    localStorage.removeItem('trialFinderAnswers');
-    setOnboardingAnswers(null);
-    setShowOnboarding(true);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Onboarding Flow */}
-      {showOnboarding && <OnboardingFlow onComplete={handleOnboardingComplete} />}
-
-      {/* Header - Professional Medical Styling */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={resetToHome}>
-              <div className="bg-blue-900 p-2.5 rounded-lg">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-slate-800">Clinical Trials Explorer</h1>
-                <p className="text-xs text-slate-500">Powered by ClinicalTrials.gov</p>
-              </div>
-            </div>
-
             <button
-              onClick={startNewSearch}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-900 text-white rounded-lg font-medium hover:bg-blue-800 transition-colors"
+              onClick={handlePrint}
+              className="py-3 px-6 border-2 border-slate-200 text-slate-700 font-medium rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
               </svg>
-              <span className="hidden sm:inline">New Search</span>
+              Print for Doctor
             </button>
           </div>
         </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        {view === 'home' && (
-          <>
-            {/* Hero Section - Professional Medical Styling */}
-            <div className="text-center mb-10">
-              <h2 className="text-3xl font-semibold text-slate-800 mb-3">
-                Explore Clinical Trial Opportunities
-              </h2>
-              <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-                Learn about research studies and experimental treatments.
-                Find information to discuss with your healthcare provider.
-              </p>
-            </div>
-
-            {/* Important Notice */}
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-8 max-w-2xl mx-auto">
-              <div className="flex gap-3">
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                  <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p className="text-sm text-blue-800">
-                  <strong>Educational resource:</strong> This tool helps you learn about clinical trials.
-                  Always consult with your healthcare provider before making any treatment decisions.
-                </p>
-              </div>
-            </div>
-
-            {/* Search Bar */}
-            <div className="bg-white rounded-xl shadow-sm p-5 mb-10 border border-slate-200 max-w-3xl mx-auto">
-              <form onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }} className="flex gap-3">
-                <div className="flex-1 relative">
-                  <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    placeholder="Search conditions, treatments, or keywords..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="px-6 py-3 bg-blue-900 text-white font-medium rounded-lg hover:bg-blue-800 transition-colors"
-                >
-                  Search
-                </button>
-              </form>
-            </div>
-
-            {/* Categories */}
-            <div className="mb-10">
-              <h3 className="text-lg font-medium text-slate-800 mb-4 text-center">Browse by Category</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-4xl mx-auto">
-                {categories.map(cat => (
-                  <button
-                    key={cat.id}
-                    onClick={() => handleCategoryClick(cat)}
-                    className="p-4 rounded-xl bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all text-center group"
-                  >
-                    <span className="text-2xl mb-2 block">{cat.icon}</span>
-                    <span className="font-medium text-sm text-slate-700 group-hover:text-blue-900">{cat.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Info Section - Professional Medical Styling */}
-            <div className="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
-              <div className="bg-white rounded-xl p-5 border border-slate-200">
-                <div className="w-10 h-10 bg-teal-50 rounded-lg flex items-center justify-center mb-3">
-                  <svg className="w-5 h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <h4 className="font-medium text-slate-800 mb-1">Safety First</h4>
-                <p className="text-slate-600 text-sm">All trials are reviewed by ethics boards and regulatory agencies.</p>
-              </div>
-              <div className="bg-white rounded-xl p-5 border border-slate-200">
-                <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center mb-3">
-                  <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h4 className="font-medium text-slate-800 mb-1">Often No Cost</h4>
-                <p className="text-slate-600 text-sm">Study-related care and treatments are typically provided free.</p>
-              </div>
-              <div className="bg-white rounded-xl p-5 border border-slate-200">
-                <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center mb-3">
-                  <svg className="w-5 h-5 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-                  </svg>
-                </div>
-                <h4 className="font-medium text-slate-800 mb-1">Always Voluntary</h4>
-                <p className="text-slate-600 text-sm">You can leave any trial at any time, for any reason.</p>
-              </div>
-            </div>
-          </>
-        )}
-
-        {view === 'results' && (
-          <>
-            {/* Results Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <button onClick={resetToHome} className="flex items-center text-sm text-slate-500 hover:text-slate-700 mb-2">
-                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Back to search
-                </button>
-                <h2 className="text-2xl font-semibold text-slate-800">
-                  {isLoading ? 'Searching...' : `${totalCount.toLocaleString()} trials found`}
-                </h2>
-                <p className="text-slate-500">Results for "{searchQuery}"</p>
-              </div>
-            </div>
-
-            {/* Results Info Banner */}
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
-              <div className="flex gap-3">
-                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                  <svg className="w-3.5 h-3.5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p className="text-sm text-blue-800">
-                  These results are for informational purposes. Click on any trial to learn more,
-                  then discuss with your healthcare provider to determine if participation might be appropriate.
-                </p>
-              </div>
-            </div>
-
-            {/* Results Grid */}
-            {isLoading ? (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[...Array(6)].map((_, i) => <TrialSkeleton key={i} />)}
-              </div>
-            ) : trials.length > 0 ? (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {trials.map(trial => (
-                  <TrialCard key={trial.id} trial={trial} onClick={() => setSelectedTrial(trial)} />
-                ))}
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl p-10 text-center border border-slate-200">
-                <svg className="w-14 h-14 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h3 className="text-lg font-medium text-slate-800 mb-2">No trials found</h3>
-                <p className="text-slate-600 mb-4">Try different keywords or browse by category</p>
-                <button onClick={resetToHome} className="px-5 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors">
-                  Start over
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </main>
-
-      {/* Footer - Professional Medical Styling */}
-      <footer className="mt-16 border-t border-slate-200 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-          <div className="text-center space-y-3">
-            <p className="text-slate-600 text-sm">
-              Data sourced from <a href="https://clinicaltrials.gov" target="_blank" rel="noopener noreferrer" className="text-blue-700 hover:underline">ClinicalTrials.gov</a>,
-              a service of the U.S. National Library of Medicine.
-            </p>
-            <p className="text-slate-500 text-xs">
-              This tool provides educational information only and does not constitute medical advice.
-              Always consult your healthcare provider before participating in any clinical trial.
-            </p>
-          </div>
-        </div>
-      </footer>
-
-      {/* Modals */}
-      <TrialDetail trial={selectedTrial} onClose={() => setSelectedTrial(null)} />
+      </div>
     </div>
   );
+}
+
+// Main Component
+export default function TrialFinder() {
+  const [showOnboarding, setShowOnboarding] = useState(true);
+  const [searchCriteria, setSearchCriteria] = useState(null);
+
+  // Check for saved search
+  useEffect(() => {
+    const saved = localStorage.getItem('trialFinderCriteria');
+    if (saved) {
+      setSearchCriteria(JSON.parse(saved));
+      setShowOnboarding(false);
+    }
+  }, []);
+
+  const handleOnboardingComplete = (answers) => {
+    setSearchCriteria(answers);
+    localStorage.setItem('trialFinderCriteria', JSON.stringify(answers));
+    setShowOnboarding(false);
+  };
+
+  const handleStartOver = () => {
+    localStorage.removeItem('trialFinderCriteria');
+    setSearchCriteria(null);
+    setShowOnboarding(true);
+  };
+
+  if (showOnboarding) {
+    return <FocusedOnboarding onComplete={handleOnboardingComplete} />;
+  }
+
+  return <MatchedTrialsResults criteria={searchCriteria} onStartOver={handleStartOver} />;
 }
