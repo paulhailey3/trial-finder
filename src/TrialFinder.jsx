@@ -89,158 +89,174 @@ function parseTrialData(study) {
   };
 }
 
-// Generate personalized insight about why a trial might help - WITH DETAILED EXPLANATIONS
+// Generate personalized insight about why a trial might help - WITH CONCRETE TREATMENT DETAILS
 function generateTrialInsight(trial, criteria) {
   const insights = [];
   const desc = (trial.description || '').toLowerCase();
   const interventions = (trial.interventionNames || '').toLowerCase();
 
-  // Symptom-specific insights - DETAILED
+  // Extract the actual treatment name for concrete references
+  const getTreatmentName = () => {
+    if (trial.interventionNames) {
+      const names = trial.interventionNames.split(',').map(n => n.trim()).filter(n => n);
+      // Skip generic terms, prefer actual drug names
+      const meaningful = names.find(n =>
+        !n.toLowerCase().includes('placebo') &&
+        !n.toLowerCase().includes('standard') &&
+        n.length > 3
+      );
+      return meaningful || names[0] || 'the study treatment';
+    }
+    return 'the study treatment';
+  };
+  const treatment = getTreatmentName();
+
+  // Symptom-specific insights - CONCRETE WITH TREATMENT NAMES
   if (criteria.symptoms && criteria.symptoms.length > 0) {
     // Cancer-specific
     if (criteria.symptoms.includes('her2_positive') && (desc.includes('her2') || interventions.includes('trastuzumab') || interventions.includes('herceptin'))) {
       insights.push({
-        title: 'Matches your HER2+ status',
-        text: 'HER2-positive tumors have excess HER2 protein that drives cancer growth. This trial uses treatments designed to block that specific protein, which can be more effective than standard chemotherapy for HER2+ patients.'
+        title: 'Targets HER2 - the protein driving your cancer',
+        text: `This trial is testing ${treatment}, which blocks the HER2 receptor on cancer cells. Since your tumor is HER2+, it depends on that protein to grow. Blocking HER2 shuts off that growth signal - this approach often works when standard chemo doesn't.`
       });
     }
     if (criteria.symptoms.includes('triple_negative') && (desc.includes('triple negative') || desc.includes('tnbc'))) {
       insights.push({
-        title: 'Designed for triple-negative breast cancer',
-        text: 'TNBC lacks the receptors most targeted therapies use, leaving fewer treatment options. This trial is researching new approaches specifically for TNBC - immunotherapies and novel agents showing promise for this harder-to-treat subtype.'
+        title: 'New approach for TNBC',
+        text: `Triple-negative breast cancer lacks the targets most treatments use, making it harder to treat. ${treatment} works through a different mechanism - either training your immune system to attack cancer cells or targeting proteins specific to TNBC that weren't treatable before.`
       });
     }
     if (criteria.symptoms.includes('egfr_mutation') && (desc.includes('egfr') || interventions.includes('egfr'))) {
       insights.push({
-        title: 'Targets your EGFR mutation',
-        text: 'EGFR mutations cause uncontrolled cell growth. This trial uses drugs that block that specific mutation. EGFR+ patients often respond dramatically better to targeted therapy than traditional chemo - sometimes with 70%+ response rates.'
+        title: 'Blocks your specific EGFR mutation',
+        text: `Your EGFR mutation makes cancer cells divide uncontrollably. ${treatment} is designed to fit into that mutated receptor and block it - like a key jamming a lock. EGFR-targeted drugs often work dramatically better than chemo for mutations like yours (70%+ response rates in some studies).`
       });
     }
 
     // Diabetes-specific
     if (criteria.symptoms.includes('neuropathy') && (desc.includes('neuropathy') || desc.includes('nerve'))) {
       insights.push({
-        title: 'Addresses your neuropathy',
-        text: 'Diabetic neuropathy (tingling, numbness, pain in hands/feet) affects up to 50% of diabetics. This trial investigates treatments that may protect or repair nerve damage - not just mask symptoms. Early intervention may help preserve nerve function.'
+        title: 'Works on nerve damage, not just pain',
+        text: `Most neuropathy treatments just mask symptoms. ${treatment} aims to address the underlying nerve damage - potentially protecting or repairing the nerves themselves. This could mean actual improvement, not just pain relief.`
       });
     }
     if (criteria.symptoms.includes('high_a1c') && (desc.includes('a1c') || desc.includes('glycemic') || desc.includes('glucose control'))) {
       insights.push({
-        title: 'Focused on lowering A1C',
-        text: 'With an A1C above 8%, improved blood sugar control could significantly reduce complication risks. Every 1% A1C reduction can lower risk of eye, kidney, and nerve damage by up to 40%. This trial tests more effective glucose control approaches.'
+        title: 'Stronger A1C reduction approach',
+        text: `With A1C above 8%, you need more effective blood sugar control. ${treatment} works to lower glucose through mechanisms that may be more effective than your current approach. Every 1% A1C drop reduces your complication risk (eyes, kidneys, nerves) by up to 40%.`
       });
     }
     if (criteria.symptoms.includes('weight') && (desc.includes('weight') || interventions.includes('glp-1') || interventions.includes('semaglutide'))) {
       insights.push({
-        title: 'May help with weight management',
-        text: 'Newer diabetes medications (GLP-1 agonists) can help with both blood sugar AND weight - often 10-15% body weight loss. This dual benefit is valuable since excess weight makes diabetes harder to control, creating a positive cycle.'
+        title: 'Tackles both blood sugar AND weight',
+        text: `${treatment} works on the GLP-1 pathway, which controls both appetite and insulin. This means you could see better blood sugar control AND significant weight loss (often 10-15% body weight). Losing weight makes diabetes easier to control, creating a positive cycle.`
       });
     }
 
     // RA-specific
     if (criteria.symptoms.includes('biologic_failed') && (desc.includes('inadequate response') || desc.includes('refractory') || desc.includes('failed'))) {
       insights.push({
-        title: 'New option after biologic failure',
-        text: 'When TNF inhibitors or other biologics haven\'t worked, it\'s frustrating. This trial uses a different mechanism of action - targeting different immune pathways. Your body may respond to this new approach even when standard biologics failed.'
+        title: 'Different mechanism after biologics failed',
+        text: `When TNF inhibitors haven't worked, ${treatment} targets a different part of the immune pathway. It's like trying a different door when the first one is locked - your body may respond to this new approach even when standard biologics didn't.`
       });
     }
     if (criteria.symptoms.includes('joint_pain') && (desc.includes('pain') || desc.includes('inflammation'))) {
       insights.push({
-        title: 'Targets the source of joint pain',
-        text: 'RA pain comes from inflammation attacking your joints. This trial aims to reduce inflammation at its source - which should reduce pain AND prevent further joint damage. Controlling inflammation early can preserve joint function for years.'
+        title: 'Stops inflammation at the source',
+        text: `Your joint pain comes from your immune system attacking your joints. ${treatment} interrupts this attack - reducing both the pain you feel now AND preventing the long-term joint damage that causes disability. It's treating the cause, not just the symptom.`
       });
     }
 
     // Depression-specific
     if (criteria.symptoms.includes('treatment_resistant') && (desc.includes('treatment-resistant') || desc.includes('refractory') || interventions.includes('ketamine') || interventions.includes('esketamine'))) {
       insights.push({
-        title: 'For treatment-resistant depression',
-        text: 'When multiple antidepressants haven\'t worked, you may have TRD. This trial tests newer approaches (like ketamine-based treatments) that work differently than SSRIs - affecting glutamate rather than serotonin. Some patients see improvement within hours, not weeks.'
+        title: 'Works differently than SSRIs',
+        text: `Standard antidepressants work on serotonin - but that doesn't work for everyone. ${treatment} affects glutamate, a completely different brain chemical. This different approach can help when SSRIs/SNRIs haven't - and some patients feel improvement within hours instead of weeks.`
       });
     }
     if (criteria.symptoms.includes('anxiety') && (desc.includes('anxiety') || desc.includes('anxious'))) {
       insights.push({
-        title: 'Addresses co-occurring anxiety',
-        text: 'Depression and anxiety often occur together (up to 60% of cases), making treatment complex. This trial addresses both conditions - important because treating only one can leave you still struggling. Combined improvement often leads to better outcomes.'
+        title: 'Treats depression AND anxiety together',
+        text: `Depression and anxiety often feed each other. ${treatment} addresses both at once - which is important because treating just one can leave you still struggling. Addressing both together often leads to better overall improvement.`
       });
     }
 
     // MS-specific
     if (criteria.symptoms.includes('relapsing') && desc.includes('relapsing')) {
       insights.push({
-        title: 'For relapsing-remitting MS',
-        text: 'RRMS involves episodes of new symptoms followed by recovery. This trial aims to reduce relapse frequency and severity - each relapse can cause lasting damage, so fewer relapses means better long-term neurological preservation.'
+        title: 'Reduces relapse frequency',
+        text: `Each MS relapse can cause permanent damage. ${treatment} aims to reduce how often relapses happen - fewer attacks means less accumulating damage to your nervous system over time. This can help preserve your function for years longer.`
       });
     }
     if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue')) {
       insights.push({
-        title: 'Targets MS fatigue',
-        text: 'MS fatigue isn\'t regular tiredness - it\'s overwhelming exhaustion affecting 80% of MS patients, often the most disabling symptom. This trial specifically measures fatigue improvement, not just other MS markers.'
+        title: 'Actually measures fatigue improvement',
+        text: `MS fatigue isn't regular tiredness - it's often the most disabling symptom. This trial specifically tracks whether ${treatment} reduces your fatigue, not just other MS markers. They're measuring what matters most to you.`
       });
     }
 
     // Alzheimer's-specific
     if (criteria.symptoms.includes('early_stage') && (desc.includes('early') || desc.includes('mild cognitive'))) {
       insights.push({
-        title: 'Optimal timing for intervention',
-        text: 'Early-stage Alzheimer\'s is likely the best window for treatment. Newer therapies aim to slow decline before significant brain damage occurs. Research suggests intervening early, when there\'s more function to preserve, may be most effective.'
+        title: 'Early stage - best timing for intervention',
+        text: `${treatment} aims to slow the underlying brain changes while you still have significant function to preserve. Early-stage is likely the best window for Alzheimer's treatments - there's more to protect, and damage hasn't become irreversible yet.`
       });
     }
 
     // Heart disease-specific
     if (criteria.symptoms.includes('heart_failure') && (desc.includes('heart failure') || desc.includes('ejection fraction'))) {
       insights.push({
-        title: 'Addresses heart failure',
-        text: 'Heart failure means your heart can\'t pump efficiently. This trial tests treatments to improve heart function, reduce hospitalizations, and improve daily symptoms. Newer HF medications have shown 20-30% reductions in hospitalization and death risk.'
+        title: 'Helps your heart pump more efficiently',
+        text: `With heart failure, your heart can't pump enough blood. ${treatment} works to strengthen heart function, which should reduce fluid buildup, improve breathing, and lower your risk of hospitalization. Recent HF drugs have shown 20-30% reductions in hospitalization.`
       });
     }
 
     // General symptom matches
     if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue') && insights.length === 0) {
       insights.push({
-        title: 'Addresses your fatigue',
-        text: 'This trial specifically measures fatigue as an outcome - meaning researchers track whether you actually feel less tired, not just lab values. Patient-reported outcomes like this ensure your real-world experience matters.'
+        title: 'Fatigue is a tracked outcome',
+        text: `This trial measures whether ${treatment} actually makes you feel less tired - not just lab values. They track patient-reported fatigue, so your real-world energy levels matter in evaluating whether this works.`
       });
     }
     if (criteria.symptoms.includes('pain') && desc.includes('pain') && insights.length === 0) {
       insights.push({
-        title: 'Pain management focus',
-        text: 'This trial includes pain as a measured outcome. Researchers track whether treatment actually reduces your daily pain experience, ensuring your quality of life - not just disease markers - is a priority.'
+        title: 'Pain reduction is measured',
+        text: `This trial tracks whether ${treatment} reduces your daily pain - they measure what you actually feel, not just disease markers. Your quality of life is a primary outcome.`
       });
     }
   }
 
-  // Goal-specific insights - DETAILED
+  // Goal-specific insights - CONCRETE
   if (criteria.goals === 'cure' && (desc.includes('remission') || desc.includes('cure') || desc.includes('disease-free'))) {
     insights.push({
-      title: 'Aims for remission or cure',
-      text: 'This trial\'s primary goal aligns with yours: achieving disease remission. The study measures "complete response" or "disease-free" status - meaning they\'re looking for substantial elimination of disease, not just management or slowing progression.'
+      title: 'Aiming for remission, not just management',
+      text: `This trial measures "complete response" or "disease-free" status with ${treatment}. The goal is eliminating the disease, not just slowing it - aligned with what you're looking for.`
     });
   }
   if (criteria.goals === 'slow' && (desc.includes('progression') || desc.includes('delay') || desc.includes('slow'))) {
     insights.push({
-      title: 'Designed to slow progression',
-      text: 'This trial aims to slow or halt disease progression. Even when a cure isn\'t possible, slowing progression can mean years of preserved function and quality of life - maintaining independence longer.'
+      title: 'Designed to slow disease progression',
+      text: `${treatment} aims to slow or halt how fast your condition advances. Even without a cure, slowing progression can mean years of preserved function - maintaining your independence and quality of life longer.`
     });
   }
   if (criteria.goals === 'symptoms' && (desc.includes('quality of life') || desc.includes('symptom') || desc.includes('tolerability'))) {
     insights.push({
-      title: 'Quality of life focused',
-      text: 'This trial specifically measures quality of life and symptom improvement. This patient-centered approach ensures researchers care about how you actually feel day-to-day, not just whether lab values improve.'
+      title: 'Focuses on how you actually feel',
+      text: `This trial measures quality of life and symptom improvement with ${treatment} - not just lab values. They care about your daily experience: less pain, more energy, better function.`
     });
   }
 
-  // Treatment history insights - DETAILED
+  // Treatment history insights - CONCRETE
   if (criteria.priorTreatments === 'many' && (desc.includes('refractory') || desc.includes('failed') || desc.includes('novel'))) {
     insights.push({
-      title: 'For treatment-experienced patients',
-      text: 'This trial is designed for patients who\'ve tried multiple treatments. The experimental approach uses a different mechanism that may work when standard options haven\'t. Your extensive treatment history actually qualifies you for this study.'
+      title: 'New option after other treatments failed',
+      text: `${treatment} uses a different approach than what you've tried before. When standard treatments haven't worked, sometimes a new mechanism is exactly what's needed - and your treatment history actually qualifies you for this study.`
     });
   }
   if (criteria.priorTreatments === 'none' && (desc.includes('first-line') || desc.includes('treatment-naive') || desc.includes('newly diagnosed'))) {
     insights.push({
-      title: 'Appropriate as first treatment',
-      text: 'This trial is for patients who haven\'t started treatment yet. Starting with a trial drug can be advantageous - your body hasn\'t developed resistance to other treatments, which often improves response rates to experimental therapies.'
+      title: 'Good option as first treatment',
+      text: `This trial is for patients starting treatment. Beginning with ${treatment} could be advantageous - your body hasn't built up resistance to other drugs, which often means better response to experimental therapies.`
     });
   }
 
@@ -248,13 +264,13 @@ function generateTrialInsight(trial, criteria) {
   if (insights.length < 2 && trial.phase) {
     if (trial.phase.includes('3')) {
       insights.push({
-        title: 'Phase 3: Final stage before approval',
-        text: 'This treatment has already shown promise in earlier trials and is now being tested for FDA approval. You\'d help confirm its effectiveness while potentially accessing a treatment that could be approved within 1-2 years.'
+        title: 'Final testing stage before FDA approval',
+        text: `${treatment} has already shown promise in earlier trials. Phase 3 is the final step before FDA approval - you'd be helping confirm it works while potentially accessing something that could be available to everyone within 1-2 years.`
       });
     } else if (trial.phase.includes('2')) {
       insights.push({
-        title: 'Phase 2: Testing effectiveness',
-        text: 'This treatment passed initial safety testing and is now being evaluated for how well it works. Phase 2 trials help determine optimal dosing and identify which patients benefit most.'
+        title: 'Testing effectiveness and optimal dosing',
+        text: `${treatment} passed initial safety testing and researchers are now figuring out how well it works and for whom. Phase 2 trials help find the right dose and identify which patients benefit most.`
       });
     }
   }
