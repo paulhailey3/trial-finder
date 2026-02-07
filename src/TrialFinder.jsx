@@ -89,239 +89,215 @@ function parseTrialData(study) {
   };
 }
 
-// Generate personalized insight about why a trial might help - WITH CONCRETE TREATMENT DETAILS
+// Generate simple, plain-language insight about what a trial is testing
 function generateTrialInsight(trial, criteria) {
   const insights = [];
   const desc = (trial.description || '').toLowerCase();
   const interventions = (trial.interventionNames || '').toLowerCase();
 
-  // Extract the actual treatment name for concrete references
+  // Get the treatment name
   const getTreatmentName = () => {
     if (trial.interventionNames) {
       const names = trial.interventionNames.split(',').map(n => n.trim()).filter(n => n);
-      // Skip generic terms, prefer actual drug names
       const meaningful = names.find(n =>
         !n.toLowerCase().includes('placebo') &&
         !n.toLowerCase().includes('standard') &&
         n.length > 3
       );
-      return meaningful || names[0] || 'the study treatment';
+      return meaningful || names[0] || 'a new treatment';
     }
-    return 'the study treatment';
+    return 'a new treatment';
   };
   const treatment = getTreatmentName();
 
-  // Symptom-specific insights - CONCRETE WITH TREATMENT NAMES
+  // Extract what the trial is actually studying from description
+  const getStudyPurpose = () => {
+    const fullDesc = trial.description || '';
+    // Look for "to determine", "to evaluate", "to assess", "to compare", "to investigate"
+    const purposeMatch = fullDesc.match(/to (determine|evaluate|assess|compare|investigate|test|examine|study)[^.]{10,80}/i);
+    if (purposeMatch) return purposeMatch[0].toLowerCase();
+    // Look for "purpose" or "objective" sentences
+    const purposeSentence = fullDesc.split(/[.!?]+/).find(s =>
+      s.toLowerCase().includes('purpose') || s.toLowerCase().includes('objective') || s.toLowerCase().includes('aim')
+    );
+    if (purposeSentence && purposeSentence.length < 120) return purposeSentence.trim().toLowerCase();
+    return null;
+  };
+
+  // Symptom-specific - SIMPLE LANGUAGE
   if (criteria.symptoms && criteria.symptoms.length > 0) {
-    // Cancer-specific
-    if (criteria.symptoms.includes('her2_positive') && (desc.includes('her2') || interventions.includes('trastuzumab') || interventions.includes('herceptin'))) {
+    // Cancer
+    if (criteria.symptoms.includes('her2_positive') && (desc.includes('her2') || interventions.includes('trastuzumab'))) {
       insights.push({
-        title: 'Targets HER2 - the protein driving your cancer',
-        text: `This trial is testing ${treatment}, which blocks the HER2 receptor on cancer cells. Since your tumor is HER2+, it depends on that protein to grow. Blocking HER2 shuts off that growth signal - this approach often works when standard chemo doesn't.`
+        title: 'For HER2+ breast cancer',
+        text: `Testing ${treatment} to see if it can shrink HER2-positive tumors.`
       });
     }
     if (criteria.symptoms.includes('triple_negative') && (desc.includes('triple negative') || desc.includes('tnbc'))) {
       insights.push({
-        title: 'New approach for TNBC',
-        text: `Triple-negative breast cancer lacks the targets most treatments use, making it harder to treat. ${treatment} works through a different mechanism - either training your immune system to attack cancer cells or targeting proteins specific to TNBC that weren't treatable before.`
+        title: 'For triple-negative breast cancer',
+        text: `Testing ${treatment} on TNBC, which doesn't respond to standard hormone treatments.`
       });
     }
     if (criteria.symptoms.includes('egfr_mutation') && (desc.includes('egfr') || interventions.includes('egfr'))) {
       insights.push({
-        title: 'Blocks your specific EGFR mutation',
-        text: `Your EGFR mutation makes cancer cells divide uncontrollably. ${treatment} is designed to fit into that mutated receptor and block it - like a key jamming a lock. EGFR-targeted drugs often work dramatically better than chemo for mutations like yours (70%+ response rates in some studies).`
+        title: 'For EGFR+ lung cancer',
+        text: `Testing ${treatment} to block the EGFR mutation driving tumor growth.`
       });
     }
 
-    // Diabetes-specific
+    // Diabetes
     if (criteria.symptoms.includes('neuropathy') && (desc.includes('neuropathy') || desc.includes('nerve'))) {
       insights.push({
-        title: 'Works on nerve damage, not just pain',
-        text: `Most neuropathy treatments just mask symptoms. ${treatment} aims to address the underlying nerve damage - potentially protecting or repairing the nerves themselves. This could mean actual improvement, not just pain relief.`
+        title: 'For diabetic nerve pain',
+        text: `Testing ${treatment} to reduce tingling, numbness, or pain in hands and feet.`
       });
     }
-    if (criteria.symptoms.includes('high_a1c') && (desc.includes('a1c') || desc.includes('glycemic') || desc.includes('glucose control'))) {
+    if (criteria.symptoms.includes('high_a1c') && (desc.includes('a1c') || desc.includes('glycemic') || desc.includes('glucose'))) {
       insights.push({
-        title: 'Stronger A1C reduction approach',
-        text: `With A1C above 8%, you need more effective blood sugar control. ${treatment} works to lower glucose through mechanisms that may be more effective than your current approach. Every 1% A1C drop reduces your complication risk (eyes, kidneys, nerves) by up to 40%.`
+        title: 'For lowering blood sugar',
+        text: `Testing ${treatment} to see if it can bring down A1C levels.`
       });
     }
     if (criteria.symptoms.includes('weight') && (desc.includes('weight') || interventions.includes('glp-1') || interventions.includes('semaglutide'))) {
       insights.push({
-        title: 'Tackles both blood sugar AND weight',
-        text: `${treatment} works on the GLP-1 pathway, which controls both appetite and insulin. This means you could see better blood sugar control AND significant weight loss (often 10-15% body weight). Losing weight makes diabetes easier to control, creating a positive cycle.`
+        title: 'For blood sugar + weight',
+        text: `Testing ${treatment} to lower blood sugar and help with weight loss.`
       });
     }
 
-    // RA-specific
-    if (criteria.symptoms.includes('biologic_failed') && (desc.includes('inadequate response') || desc.includes('refractory') || desc.includes('failed'))) {
+    // RA
+    if (criteria.symptoms.includes('biologic_failed') && (desc.includes('inadequate response') || desc.includes('refractory'))) {
       insights.push({
-        title: 'Different mechanism after biologics failed',
-        text: `When TNF inhibitors haven't worked, ${treatment} targets a different part of the immune pathway. It's like trying a different door when the first one is locked - your body may respond to this new approach even when standard biologics didn't.`
+        title: 'After other treatments didn\'t work',
+        text: `Testing ${treatment} for patients whose previous medications stopped working.`
       });
     }
     if (criteria.symptoms.includes('joint_pain') && (desc.includes('pain') || desc.includes('inflammation'))) {
       insights.push({
-        title: 'Stops inflammation at the source',
-        text: `Your joint pain comes from your immune system attacking your joints. ${treatment} interrupts this attack - reducing both the pain you feel now AND preventing the long-term joint damage that causes disability. It's treating the cause, not just the symptom.`
+        title: 'For joint pain and swelling',
+        text: `Testing ${treatment} to reduce inflammation and joint pain.`
       });
     }
 
-    // Depression-specific
-    if (criteria.symptoms.includes('treatment_resistant') && (desc.includes('treatment-resistant') || desc.includes('refractory') || interventions.includes('ketamine') || interventions.includes('esketamine'))) {
+    // Depression
+    if (criteria.symptoms.includes('treatment_resistant') && (desc.includes('treatment-resistant') || desc.includes('refractory') || interventions.includes('ketamine'))) {
       insights.push({
-        title: 'Works differently than SSRIs',
-        text: `Standard antidepressants work on serotonin - but that doesn't work for everyone. ${treatment} affects glutamate, a completely different brain chemical. This different approach can help when SSRIs/SNRIs haven't - and some patients feel improvement within hours instead of weeks.`
+        title: 'When antidepressants haven\'t helped',
+        text: `Testing ${treatment}, which works differently than typical antidepressants.`
       });
     }
     if (criteria.symptoms.includes('anxiety') && (desc.includes('anxiety') || desc.includes('anxious'))) {
       insights.push({
-        title: 'Treats depression AND anxiety together',
-        text: `Depression and anxiety often feed each other. ${treatment} addresses both at once - which is important because treating just one can leave you still struggling. Addressing both together often leads to better overall improvement.`
+        title: 'For depression with anxiety',
+        text: `Testing ${treatment} to help with both depression and anxiety symptoms.`
       });
     }
 
-    // MS-specific
+    // MS
     if (criteria.symptoms.includes('relapsing') && desc.includes('relapsing')) {
       insights.push({
-        title: 'Reduces relapse frequency',
-        text: `Each MS relapse can cause permanent damage. ${treatment} aims to reduce how often relapses happen - fewer attacks means less accumulating damage to your nervous system over time. This can help preserve your function for years longer.`
+        title: 'For relapsing MS',
+        text: `Testing ${treatment} to reduce how often MS flare-ups happen.`
       });
     }
     if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue')) {
       insights.push({
-        title: 'Actually measures fatigue improvement',
-        text: `MS fatigue isn't regular tiredness - it's often the most disabling symptom. This trial specifically tracks whether ${treatment} reduces your fatigue, not just other MS markers. They're measuring what matters most to you.`
+        title: 'For MS fatigue',
+        text: `Testing ${treatment} to help with the exhaustion that comes with MS.`
       });
     }
 
-    // Alzheimer's-specific
+    // Alzheimer's
     if (criteria.symptoms.includes('early_stage') && (desc.includes('early') || desc.includes('mild cognitive'))) {
       insights.push({
-        title: 'Early stage - best timing for intervention',
-        text: `${treatment} aims to slow the underlying brain changes while you still have significant function to preserve. Early-stage is likely the best window for Alzheimer's treatments - there's more to protect, and damage hasn't become irreversible yet.`
+        title: 'For early-stage memory problems',
+        text: `Testing ${treatment} to slow memory and thinking decline in early stages.`
       });
     }
 
-    // Heart disease-specific
+    // Heart
     if (criteria.symptoms.includes('heart_failure') && (desc.includes('heart failure') || desc.includes('ejection fraction'))) {
       insights.push({
-        title: 'Helps your heart pump more efficiently',
-        text: `With heart failure, your heart can't pump enough blood. ${treatment} works to strengthen heart function, which should reduce fluid buildup, improve breathing, and lower your risk of hospitalization. Recent HF drugs have shown 20-30% reductions in hospitalization.`
+        title: 'For heart failure',
+        text: `Testing ${treatment} to help the heart pump better and reduce symptoms.`
       });
     }
 
-    // General symptom matches
+    // General
     if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue') && insights.length === 0) {
       insights.push({
-        title: 'Fatigue is a tracked outcome',
-        text: `This trial measures whether ${treatment} actually makes you feel less tired - not just lab values. They track patient-reported fatigue, so your real-world energy levels matter in evaluating whether this works.`
+        title: 'Tracks fatigue levels',
+        text: `This study measures whether ${treatment} helps with tiredness.`
       });
     }
     if (criteria.symptoms.includes('pain') && desc.includes('pain') && insights.length === 0) {
       insights.push({
-        title: 'Pain reduction is measured',
-        text: `This trial tracks whether ${treatment} reduces your daily pain - they measure what you actually feel, not just disease markers. Your quality of life is a primary outcome.`
+        title: 'Tracks pain levels',
+        text: `This study measures whether ${treatment} reduces pain.`
       });
     }
   }
 
-  // Helper to extract a unique detail from the description
-  const extractUniqueDetail = (text) => {
-    const sentences = (trial.description || '').split(/[.!?]+/).filter(s => s.trim().length > 20);
-    // Find a sentence with specific mechanisms or outcomes
-    const mechanismWords = ['target', 'block', 'inhibit', 'activate', 'reduce', 'increase', 'improve', 'prevent', 'stimulate', 'modulate'];
-    const specific = sentences.find(s => mechanismWords.some(w => s.toLowerCase().includes(w)));
-    if (specific) {
-      // Clean it up and truncate
-      let clean = specific.trim();
-      if (clean.length > 150) clean = clean.substring(0, 147) + '...';
-      return clean;
+  // Goal-specific - SIMPLE
+  if (insights.length === 0 && criteria.goals) {
+    const purpose = getStudyPurpose();
+    if (criteria.goals === 'cure' && (desc.includes('remission') || desc.includes('cure') || desc.includes('disease-free'))) {
+      insights.push({
+        title: 'Aiming for remission',
+        text: purpose ? `This study is trying ${purpose}.` : `Testing if ${treatment} can eliminate the disease.`
+      });
     }
-    return null;
-  };
-
-  // Goal-specific insights - UNIQUE PER TRIAL
-  if (criteria.goals === 'cure' && (desc.includes('remission') || desc.includes('cure') || desc.includes('disease-free'))) {
-    const detail = extractUniqueDetail();
-    insights.push({
-      title: 'Goal: disease elimination',
-      text: detail
-        ? `${treatment} is being tested for complete disease response. From the study: "${detail}"`
-        : `${treatment} aims for remission or disease-free status - not just management.`
-    });
-  }
-  if (criteria.goals === 'slow' && (desc.includes('progression') || desc.includes('delay') || desc.includes('slow'))) {
-    const detail = extractUniqueDetail();
-    insights.push({
-      title: 'Goal: slow progression',
-      text: detail
-        ? `${treatment} aims to delay disease advancement. The approach: "${detail}"`
-        : `${treatment} works to slow progression, potentially adding years of preserved function.`
-    });
-  }
-  if (criteria.goals === 'symptoms' && (desc.includes('quality of life') || desc.includes('symptom') || desc.includes('tolerability'))) {
-    // Extract what specific symptoms/QoL measures they track
-    const qolTerms = ['fatigue', 'pain', 'function', 'mobility', 'sleep', 'mood', 'energy', 'daily activities', 'well-being'];
-    const foundTerms = qolTerms.filter(t => desc.includes(t));
-    insights.push({
-      title: 'Measures real-world improvement',
-      text: foundTerms.length > 0
-        ? `${treatment} trial specifically tracks ${foundTerms.slice(0, 2).join(' and ')} - measuring whether you actually feel better, not just lab numbers.`
-        : `${treatment} is evaluated on patient-reported outcomes - how you feel day-to-day matters here.`
-    });
+    if (criteria.goals === 'slow' && (desc.includes('progression') || desc.includes('delay') || desc.includes('slow'))) {
+      insights.push({
+        title: 'Slowing disease progression',
+        text: purpose ? `This study is trying ${purpose}.` : `Testing if ${treatment} can slow down how fast the condition gets worse.`
+      });
+    }
+    if (criteria.goals === 'symptoms' && (desc.includes('quality of life') || desc.includes('symptom'))) {
+      insights.push({
+        title: 'Improving daily life',
+        text: purpose ? `This study is trying ${purpose}.` : `Testing if ${treatment} helps you feel better day-to-day.`
+      });
+    }
   }
 
-  // Treatment history insights - UNIQUE PER TRIAL
+  // Treatment history - SIMPLE
   if (criteria.priorTreatments === 'many' && (desc.includes('refractory') || desc.includes('failed') || desc.includes('novel'))) {
-    // Try to identify the mechanism that makes this different
-    const mechanismTerms = ['novel', 'new mechanism', 'different pathway', 'alternative', 'innovative'];
-    const hasMechanism = mechanismTerms.some(t => desc.includes(t));
     insights.push({
-      title: 'Different approach for treatment-experienced',
-      text: hasMechanism
-        ? `${treatment} uses a novel mechanism - a different approach than standard therapies you may have tried.`
-        : `Designed for patients who've tried other options. ${treatment} may work where previous treatments didn't.`
+      title: 'For patients who\'ve tried other treatments',
+      text: `Testing ${treatment} for people whose previous medications didn't work well enough.`
     });
   }
   if (criteria.priorTreatments === 'none' && (desc.includes('first-line') || desc.includes('treatment-naive') || desc.includes('newly diagnosed'))) {
     insights.push({
-      title: 'Designed for newly diagnosed patients',
-      text: `${treatment} is being tested as an initial treatment option - starting here means no prior drug resistance.`
+      title: 'For newly diagnosed patients',
+      text: `Testing ${treatment} as a first treatment option.`
     });
   }
 
-  // Add trial-specific context if few insights (pull from actual trial data)
-  if (insights.length < 2) {
-    // Try to create a unique insight from the trial's own description
-    const detail = extractUniqueDetail();
-    if (detail && !insights.some(i => i.text.includes(detail))) {
+  // If still no insights, extract what the study is actually doing
+  if (insights.length === 0) {
+    const purpose = getStudyPurpose();
+    if (purpose) {
       insights.push({
-        title: `How ${treatment} works`,
-        text: `From this study: "${detail}"`
+        title: 'What they\'re testing',
+        text: `This study is trying ${purpose}.`
       });
     } else if (trial.phase) {
-      // Fall back to phase info but make it brief and varied
-      if (trial.phase.includes('3')) {
-        insights.push({
-          title: 'Phase 3 - final stage',
-          text: `${treatment} showed enough promise to reach final FDA testing. Could be widely available in 1-2 years.`
-        });
-      } else if (trial.phase.includes('2')) {
-        insights.push({
-          title: 'Phase 2 - testing effectiveness',
-          text: `${treatment} passed safety testing. Now determining optimal dosing and who benefits most.`
-        });
-      } else if (trial.phase.includes('1')) {
-        insights.push({
-          title: 'Phase 1 - early access',
-          text: `${treatment} is in early testing. Smaller trial with close monitoring - earliest access to new approaches.`
-        });
-      }
+      // Simple phase description
+      const phaseText = trial.phase.includes('3') ? 'final testing before FDA approval'
+        : trial.phase.includes('2') ? 'testing how well it works'
+        : trial.phase.includes('1') ? 'early safety testing'
+        : 'clinical testing';
+      insights.push({
+        title: `${trial.phase} trial`,
+        text: `${treatment} is in ${phaseText}.`
+      });
     }
   }
 
-  return insights.slice(0, 3); // Return top 3 insights
+  return insights.slice(0, 2); // Return top 2 insights max - keep it simple
 }
 
 // Score trial match quality based on user criteria
