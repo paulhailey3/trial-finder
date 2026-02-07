@@ -239,8 +239,15 @@ function FocusedOnboarding({ onComplete }) {
   const progress = ((step) / (steps.length - 1)) * 100;
 
   const handleSelect = (key, value) => {
-    setAnswers({ ...answers, [key]: value });
-    setTimeout(() => setStep(step + 1), 200);
+    const newAnswers = { ...answers, [key]: value };
+    setAnswers(newAnswers);
+    setTimeout(() => {
+      if (step < steps.length - 1) {
+        setStep(step + 1);
+      } else {
+        onComplete(newAnswers);
+      }
+    }, 200);
   };
 
   const handleFreeText = (key, value) => {
