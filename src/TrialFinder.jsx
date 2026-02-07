@@ -351,8 +351,15 @@ function generateDifferences(trial, criteria) {
     }
   }
 
-  // Phase difference
-  if (criteria.phasePreference && criteria.phasePreference !== 'any') {
+  // Phase difference - only flag if we actually know the trial's phase
+  const phaseIsKnown = trial.phase &&
+    trial.phase.toLowerCase() !== 'not specified' &&
+    trial.phase.toLowerCase() !== 'n/a' &&
+    trial.phase.toLowerCase() !== 'na' &&
+    trial.phase.trim() !== '' &&
+    (trial.phase.includes('1') || trial.phase.includes('2') || trial.phase.includes('3') || trial.phase.includes('4'));
+
+  if (criteria.phasePreference && criteria.phasePreference !== 'any' && phaseIsKnown) {
     if (criteria.phasePreference === 'proven' && !trial.phase.includes('3') && !trial.phase.includes('4')) {
       differences.push({
         type: 'phase',
