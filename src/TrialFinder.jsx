@@ -328,6 +328,102 @@ function scoreTrialMatch(trial, criteria) {
   return { score, matchReasons, insights: insightTexts };
 }
 
+// Generate explanations for what doesn't match the user's criteria
+function generateDifferences(trial, criteria) {
+  const differences = [];
+
+  // Location difference
+  if (criteria.location) {
+    const locationLower = criteria.location.toLowerCase();
+    const hasMatch = trial.locations.some(loc =>
+      loc.city?.toLowerCase().includes(locationLower) ||
+      loc.state?.toLowerCase().includes(locationLower)
+    );
+    if (!hasMatch && trial.locations.length > 0) {
+      const firstLoc = trial.locations[0];
+      const locStr = [firstLoc.city, firstLoc.state].filter(Boolean).join(', ');
+      differences.push({
+        type: 'location',
+        wanted: criteria.location,
+        actual: locStr || 'Various locations',
+        text: `Located in ${locStr || 'other areas'} instead of ${criteria.location}`
+      });
+    }
+  }
+
+  // Phase difference
+  if (criteria.phasePreference && criteria.phasePreference !== 'any') {
+    if (criteria.phasePreference === 'proven' && !trial.phase.includes('3') && !trial.phase.includes('4')) {
+      differences.push({
+        type: 'phase',
+        wanted: 'Phase 3/4 (established)',
+        actual: trial.phase,
+        text: `${trial.phase} trial (you preferred more established Phase 3/4 trials)`
+      });
+    } else if (criteria.phasePreference === 'cutting_edge' && !trial.phase.includes('1') && !trial.phase.includes('2')) {
+      differences.push({
+        type: 'phase',
+        wanted: 'Phase 1/2 (cutting-edge)',
+        actual: trial.phase,
+        text: `${trial.phase} trial (you preferred early-phase cutting-edge trials)`
+      });
+    }
+  }
+
+  // Age difference
+  if (criteria.age) {
+    const ageRanges = {
+      'under18': { min: 0, max: 17, label: 'under 18' },
+      '18-40': { min: 18, max: 40, label: '18-40' },
+      '41-64': { min: 41, max: 64, label: '41-64' },
+      '65plus': { min: 65, max: 120, label: '65+' }
+    };
+    const userRange = ageRanges[criteria.age];
+    if (userRange && trial.eligibility.minAge) {
+      const trialMin = parseInt(trial.eligibility.minAge) || 0;
+      const trialMax = parseInt(trial.eligibility.maxAge) || 120;
+      if (userRange.min < trialMin || userRange.max > trialMax) {
+        differences.push({
+          type: 'age',
+          wanted: userRange.label,
+          actual: `${trial.eligibility.minAge} - ${trial.eligibility.maxAge}`,
+          text: `Age requirement is ${trial.eligibility.minAge} - ${trial.eligibility.maxAge} (you indicated ${userRange.label})`
+        });
+      }
+    }
+  }
+
+  // Treatment history difference
+  if (criteria.priorTreatments) {
+    const desc = (trial.description || '').toLowerCase();
+    if (criteria.priorTreatments === 'none' && (desc.includes('prior') || desc.includes('previous treatment') || desc.includes('failed'))) {
+      differences.push({
+        type: 'history',
+        text: 'May require prior treatment history (you indicated no prior treatments)'
+      });
+    }
+    if (criteria.priorTreatments === 'many' && (desc.includes('treatment-naive') || desc.includes('first-line') || desc.includes('no prior'))) {
+      differences.push({
+        type: 'history',
+        text: 'For patients without prior treatments (you\'ve tried multiple treatments)'
+      });
+    }
+  }
+
+  // Goal alignment
+  if (criteria.goals) {
+    const desc = (trial.description || '').toLowerCase();
+    if (criteria.goals === 'symptoms' && !desc.includes('symptom') && !desc.includes('quality of life') && !desc.includes('pain')) {
+      differences.push({
+        type: 'goal',
+        text: 'Focuses on disease modification rather than symptom management'
+      });
+    }
+  }
+
+  return differences.slice(0, 3); // Return top 3 differences
+}
+
 // Condition-specific symptoms and characteristics
 const conditionSymptoms = {
   'breast cancer': [
@@ -861,30 +957,66 @@ function MatchedTrialsResults({ criteria, onStartOver }) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTrial, setSelectedTrial] = useState(null);
   const [totalFound, setTotalFound] = useState(0);
+  const [isShowingClosest, setIsShowingClosest] = useState(false);
 
   useEffect(() => {
     async function loadTrials() {
       setIsLoading(true);
+      setIsShowingClosest(false);
 
+      // First try with all criteria
       const result = await fetchMatchingTrials({
         condition: criteria.condition,
         location: criteria.location,
         phase: criteria.phasePreference,
-        pageSize: 15 // Fetch more to score and pick best
+        pageSize: 15
       });
 
       // Score and sort trials
-      const scoredTrials = result.trials.map(trial => ({
+      let scoredTrials = result.trials.map(trial => ({
         ...trial,
         ...scoreTrialMatch(trial, criteria)
       }));
 
-      // Sort by score and take top 4
+      // Sort by score
       scoredTrials.sort((a, b) => b.score - a.score);
-      const topTrials = scoredTrials.slice(0, 4);
 
-      setTrials(topTrials);
-      setTotalFound(result.totalCount);
+      // Check if we have good matches (score > 30 means at least one meaningful match)
+      const goodMatches = scoredTrials.filter(t => t.score >= 30);
+
+      if (goodMatches.length >= 2) {
+        // We have good matches - show top 4
+        setTrials(scoredTrials.slice(0, 4));
+        setTotalFound(result.totalCount);
+      } else {
+        // Not enough good matches - broaden search (remove location filter)
+        console.log('Not enough matches, broadening search...');
+
+        const broaderResult = await fetchMatchingTrials({
+          condition: criteria.condition,
+          pageSize: 20
+        });
+
+        // Score these with differences
+        let broaderTrials = broaderResult.trials.map(trial => {
+          const scoreResult = scoreTrialMatch(trial, criteria);
+          const differences = generateDifferences(trial, criteria);
+          return {
+            ...trial,
+            ...scoreResult,
+            differences
+          };
+        });
+
+        // Sort by score and take top 4
+        broaderTrials.sort((a, b) => b.score - a.score);
+        const topBroader = broaderTrials.slice(0, 4);
+
+        setTrials(topBroader);
+        setTotalFound(broaderResult.totalCount);
+        setIsShowingClosest(true);
+      }
+
       setIsLoading(false);
     }
 
@@ -926,9 +1058,34 @@ function MatchedTrialsResults({ criteria, onStartOver }) {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8">
+        {/* Closest Matches Banner - shown when no exact matches */}
+        {isShowingClosest && (
+          <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-orange-800 mb-1">Showing closest options</h3>
+                <p className="text-sm text-orange-700 mb-2">
+                  We couldn't find trials that matched all your criteria exactly. These are the closest options available -
+                  we've highlighted what's different from your preferences so you can make an informed decision.
+                </p>
+                <p className="text-xs text-orange-600">
+                  💡 Tip: You might consider adjusting your location or phase preferences to see more options.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Personalized Search Summary */}
-        <div className="bg-gradient-to-r from-blue-50 to-teal-50 border border-blue-100 rounded-xl p-5 mb-6">
-          <p className="text-sm text-blue-800 font-medium mb-3">Your personalized search criteria:</p>
+        <div className={`border rounded-xl p-5 mb-6 ${isShowingClosest ? 'bg-slate-50 border-slate-200' : 'bg-gradient-to-r from-blue-50 to-teal-50 border-blue-100'}`}>
+          <p className={`text-sm font-medium mb-3 ${isShowingClosest ? 'text-slate-700' : 'text-blue-800'}`}>
+            {isShowingClosest ? 'What you were looking for:' : 'Your personalized search criteria:'}
+          </p>
           <div className="flex flex-wrap gap-2 mb-3">
             <span className="px-3 py-1 bg-white rounded-full text-sm text-slate-700 border border-slate-200">
               {criteria.condition}
@@ -939,8 +1096,8 @@ function MatchedTrialsResults({ criteria, onStartOver }) {
               </span>
             )}
             {criteria.location && (
-              <span className="px-3 py-1 bg-white rounded-full text-sm text-slate-700 border border-slate-200">
-                📍 {criteria.location}
+              <span className={`px-3 py-1 bg-white rounded-full text-sm border ${isShowingClosest ? 'text-orange-700 border-orange-200' : 'text-slate-700 border-slate-200'}`}>
+                📍 {criteria.location} {isShowingClosest && '(expanded)'}
               </span>
             )}
             {criteria.phasePreference && criteria.phasePreference !== 'any' && (
@@ -957,7 +1114,7 @@ function MatchedTrialsResults({ criteria, onStartOver }) {
             )}
           </div>
           <p className="text-xs text-slate-500">
-            Analyzed {totalFound.toLocaleString()} recruiting trials • Showing top {trials.length} matches ranked by relevance to your criteria
+            Analyzed {totalFound.toLocaleString()} recruiting trials • Showing {isShowingClosest ? 'closest' : 'top'} {trials.length} {isShowingClosest ? 'options' : 'matches'}
           </p>
         </div>
 
@@ -978,11 +1135,24 @@ function MatchedTrialsResults({ criteria, onStartOver }) {
             <svg className="w-14 h-14 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <h3 className="text-lg font-medium text-slate-800 mb-2">No matching trials found</h3>
-            <p className="text-slate-600 mb-4">Try broadening your search criteria</p>
-            <button onClick={onStartOver} className="px-5 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors">
-              Try Again
-            </button>
+            <h3 className="text-lg font-medium text-slate-800 mb-2">No trials found for this condition</h3>
+            <p className="text-slate-600 mb-4 max-w-md mx-auto">
+              We couldn't find any recruiting trials for "{criteria.condition}".
+              This could mean trials are currently full, or there may be trials listed under a different name.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button onClick={onStartOver} className="px-5 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors">
+                Try Different Condition
+              </button>
+              <a
+                href={`https://clinicaltrials.gov/search?cond=${encodeURIComponent(criteria.condition)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-5 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Search ClinicalTrials.gov Directly
+              </a>
+            </div>
           </div>
         )}
 
@@ -1070,6 +1240,26 @@ function MatchedTrialCard({ trial, rank, onViewDetails }) {
 
       {/* Body */}
       <div className="p-5">
+        {/* Differences from criteria - shown for closest matches */}
+        {trial.differences && trial.differences.length > 0 && (
+          <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-xl p-4 mb-4">
+            <h4 className="font-medium text-orange-800 text-sm mb-2 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              What's different from your criteria
+            </h4>
+            <ul className="space-y-1.5">
+              {trial.differences.map((diff, i) => (
+                <li key={i} className="text-sm text-orange-900 flex items-start gap-2">
+                  <span className="text-orange-400 mt-0.5">•</span>
+                  {diff.text}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Personalized Insights - Why this trial might help YOU */}
         {trial.insights && trial.insights.length > 0 && (
           <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-4 mb-4">
@@ -1077,7 +1267,7 @@ function MatchedTrialCard({ trial, rank, onViewDetails }) {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
-              Why this trial might help you
+              Why this trial might still help you
             </h4>
             <ul className="space-y-1.5">
               {trial.insights.map((insight, i) => (
@@ -1306,6 +1496,29 @@ function TrialDetailModal({ trial, criteria, onClose }) {
           <h2 className="text-xl font-semibold text-slate-800 mb-2">{trial.title}</h2>
           <p className="text-slate-500 mb-6">Sponsored by {trial.sponsor} | Phase: {trial.phase}</p>
 
+          {/* Differences from criteria */}
+          {trial.differences && trial.differences.length > 0 && (
+            <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-xl p-5 mb-6">
+              <h4 className="font-semibold text-orange-800 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                What's different from what you wanted
+              </h4>
+              <ul className="space-y-2">
+                {trial.differences.map((diff, i) => (
+                  <li key={i} className="text-orange-900 flex items-start gap-3">
+                    <span className="w-6 h-6 bg-orange-200 rounded-full flex items-center justify-center shrink-0 text-orange-800 text-sm font-medium">!</span>
+                    <span>{diff.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm text-orange-700 mt-3 italic">
+                Despite these differences, this trial may still be worth considering - discuss with your doctor.
+              </p>
+            </div>
+          )}
+
           {/* Personalized Insights */}
           {trial.insights && trial.insights.length > 0 && (
             <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-5 mb-6">
@@ -1313,7 +1526,7 @@ function TrialDetailModal({ trial, criteria, onClose }) {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
-                How this trial addresses your specific situation
+                {trial.differences?.length > 0 ? 'Why this trial might still help you' : 'How this trial addresses your situation'}
               </h4>
               <ul className="space-y-2">
                 {trial.insights.map((insight, i) => (
