@@ -226,52 +226,98 @@ function generateTrialInsight(trial, criteria) {
     }
   }
 
-  // Goal-specific insights - CONCRETE
+  // Helper to extract a unique detail from the description
+  const extractUniqueDetail = (text) => {
+    const sentences = (trial.description || '').split(/[.!?]+/).filter(s => s.trim().length > 20);
+    // Find a sentence with specific mechanisms or outcomes
+    const mechanismWords = ['target', 'block', 'inhibit', 'activate', 'reduce', 'increase', 'improve', 'prevent', 'stimulate', 'modulate'];
+    const specific = sentences.find(s => mechanismWords.some(w => s.toLowerCase().includes(w)));
+    if (specific) {
+      // Clean it up and truncate
+      let clean = specific.trim();
+      if (clean.length > 150) clean = clean.substring(0, 147) + '...';
+      return clean;
+    }
+    return null;
+  };
+
+  // Goal-specific insights - UNIQUE PER TRIAL
   if (criteria.goals === 'cure' && (desc.includes('remission') || desc.includes('cure') || desc.includes('disease-free'))) {
+    const detail = extractUniqueDetail();
     insights.push({
-      title: 'Aiming for remission, not just management',
-      text: `This trial measures "complete response" or "disease-free" status with ${treatment}. The goal is eliminating the disease, not just slowing it - aligned with what you're looking for.`
+      title: 'Goal: disease elimination',
+      text: detail
+        ? `${treatment} is being tested for complete disease response. From the study: "${detail}"`
+        : `${treatment} aims for remission or disease-free status - not just management.`
     });
   }
   if (criteria.goals === 'slow' && (desc.includes('progression') || desc.includes('delay') || desc.includes('slow'))) {
+    const detail = extractUniqueDetail();
     insights.push({
-      title: 'Designed to slow disease progression',
-      text: `${treatment} aims to slow or halt how fast your condition advances. Even without a cure, slowing progression can mean years of preserved function - maintaining your independence and quality of life longer.`
+      title: 'Goal: slow progression',
+      text: detail
+        ? `${treatment} aims to delay disease advancement. The approach: "${detail}"`
+        : `${treatment} works to slow progression, potentially adding years of preserved function.`
     });
   }
   if (criteria.goals === 'symptoms' && (desc.includes('quality of life') || desc.includes('symptom') || desc.includes('tolerability'))) {
+    // Extract what specific symptoms/QoL measures they track
+    const qolTerms = ['fatigue', 'pain', 'function', 'mobility', 'sleep', 'mood', 'energy', 'daily activities', 'well-being'];
+    const foundTerms = qolTerms.filter(t => desc.includes(t));
     insights.push({
-      title: 'Focuses on how you actually feel',
-      text: `This trial measures quality of life and symptom improvement with ${treatment} - not just lab values. They care about your daily experience: less pain, more energy, better function.`
+      title: 'Measures real-world improvement',
+      text: foundTerms.length > 0
+        ? `${treatment} trial specifically tracks ${foundTerms.slice(0, 2).join(' and ')} - measuring whether you actually feel better, not just lab numbers.`
+        : `${treatment} is evaluated on patient-reported outcomes - how you feel day-to-day matters here.`
     });
   }
 
-  // Treatment history insights - CONCRETE
+  // Treatment history insights - UNIQUE PER TRIAL
   if (criteria.priorTreatments === 'many' && (desc.includes('refractory') || desc.includes('failed') || desc.includes('novel'))) {
+    // Try to identify the mechanism that makes this different
+    const mechanismTerms = ['novel', 'new mechanism', 'different pathway', 'alternative', 'innovative'];
+    const hasMechanism = mechanismTerms.some(t => desc.includes(t));
     insights.push({
-      title: 'New option after other treatments failed',
-      text: `${treatment} uses a different approach than what you've tried before. When standard treatments haven't worked, sometimes a new mechanism is exactly what's needed - and your treatment history actually qualifies you for this study.`
+      title: 'Different approach for treatment-experienced',
+      text: hasMechanism
+        ? `${treatment} uses a novel mechanism - a different approach than standard therapies you may have tried.`
+        : `Designed for patients who've tried other options. ${treatment} may work where previous treatments didn't.`
     });
   }
   if (criteria.priorTreatments === 'none' && (desc.includes('first-line') || desc.includes('treatment-naive') || desc.includes('newly diagnosed'))) {
     insights.push({
-      title: 'Good option as first treatment',
-      text: `This trial is for patients starting treatment. Beginning with ${treatment} could be advantageous - your body hasn't built up resistance to other drugs, which often means better response to experimental therapies.`
+      title: 'Designed for newly diagnosed patients',
+      text: `${treatment} is being tested as an initial treatment option - starting here means no prior drug resistance.`
     });
   }
 
-  // Add phase context if few insights
-  if (insights.length < 2 && trial.phase) {
-    if (trial.phase.includes('3')) {
+  // Add trial-specific context if few insights (pull from actual trial data)
+  if (insights.length < 2) {
+    // Try to create a unique insight from the trial's own description
+    const detail = extractUniqueDetail();
+    if (detail && !insights.some(i => i.text.includes(detail))) {
       insights.push({
-        title: 'Final testing stage before FDA approval',
-        text: `${treatment} has already shown promise in earlier trials. Phase 3 is the final step before FDA approval - you'd be helping confirm it works while potentially accessing something that could be available to everyone within 1-2 years.`
+        title: `How ${treatment} works`,
+        text: `From this study: "${detail}"`
       });
-    } else if (trial.phase.includes('2')) {
-      insights.push({
-        title: 'Testing effectiveness and optimal dosing',
-        text: `${treatment} passed initial safety testing and researchers are now figuring out how well it works and for whom. Phase 2 trials help find the right dose and identify which patients benefit most.`
-      });
+    } else if (trial.phase) {
+      // Fall back to phase info but make it brief and varied
+      if (trial.phase.includes('3')) {
+        insights.push({
+          title: 'Phase 3 - final stage',
+          text: `${treatment} showed enough promise to reach final FDA testing. Could be widely available in 1-2 years.`
+        });
+      } else if (trial.phase.includes('2')) {
+        insights.push({
+          title: 'Phase 2 - testing effectiveness',
+          text: `${treatment} passed safety testing. Now determining optimal dosing and who benefits most.`
+        });
+      } else if (trial.phase.includes('1')) {
+        insights.push({
+          title: 'Phase 1 - early access',
+          text: `${treatment} is in early testing. Smaller trial with close monitoring - earliest access to new approaches.`
+        });
+      }
     }
   }
 
