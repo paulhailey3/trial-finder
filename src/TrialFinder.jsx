@@ -68,8 +68,27 @@ function parseTrialData(study) {
       minAge: eligibility.minimumAge || 'Not specified',
       maxAge: eligibility.maximumAge || 'Not specified',
       sex: eligibility.sex || 'All',
-      healthyVolunteers: eligibility.healthyVolunteers || 'No'
+      healthyVolunteers: eligibility.healthyVolunteers === 'Yes'
     },
+    // Detect compensation - check description and eligibility for payment keywords
+    compensation: (() => {
+      const fullText = (desc.briefSummary || '') + ' ' + (desc.detailedDescription || '') + ' ' + (eligibility.eligibilityCriteria || '');
+      const textLower = fullText.toLowerCase();
+      const hasCompensation = textLower.includes('compensat') ||
+        textLower.includes('reimburs') ||
+        textLower.includes('paid') ||
+        textLower.includes('payment') ||
+        textLower.includes('stipend') ||
+        textLower.includes('$ ') ||
+        textLower.includes('$50') || textLower.includes('$100') || textLower.includes('$150') || textLower.includes('$200') ||
+        /\$\d+/.test(fullText);
+      const acceptsHealthy = eligibility.healthyVolunteers === 'Yes';
+      return {
+        mentioned: hasCompensation,
+        healthyVolunteers: acceptsHealthy,
+        likelyPaid: hasCompensation || acceptsHealthy
+      };
+    })(),
     locations: (contacts.locations || []).slice(0, 10).map(loc => ({
       facility: loc.facility || 'Unknown Facility',
       city: loc.city || '',
@@ -472,9 +491,29 @@ function scoreTrialMatch(trial, criteria) {
   }
 
   // Prevention studies for those interested
-  if (criteria.purpose === 'prevention' && trial.eligibility.healthyVolunteers === 'Yes') {
+  if (criteria.purpose === 'prevention' && trial.eligibility.healthyVolunteers) {
     score += 20;
     matchReasons.push('🛡️ Prevention study');
+  }
+
+  // Compensation preference
+  if (criteria.compensation === 'required') {
+    if (trial.compensation?.likelyPaid) {
+      score += 40; // Strong boost for required compensation
+      matchReasons.push('💰 Likely pays participants');
+    } else {
+      score -= 30; // Penalize non-paying trials when required
+    }
+  } else if (criteria.compensation === 'preferred') {
+    if (trial.compensation?.likelyPaid) {
+      score += 20;
+      matchReasons.push('💵 May offer compensation');
+    }
+  }
+
+  // Healthy volunteer trials often pay
+  if (trial.eligibility.healthyVolunteers && trial.compensation?.likelyPaid) {
+    matchReasons.push('👤 Open to healthy volunteers');
   }
 
   // Priority matching
@@ -856,6 +895,17 @@ function FocusedOnboarding({ onComplete }) {
         { value: 'minimal', label: 'Minimal visits', icon: '📅', desc: 'Monthly or less frequent' },
         { value: 'moderate', label: 'Moderate commitment', icon: '🗓️', desc: 'Weekly to bi-weekly visits' },
         { value: 'intensive', label: 'Whatever it takes', icon: '💪', desc: 'Open to frequent visits' }
+      ]
+    },
+    {
+      type: 'question',
+      key: 'compensation',
+      title: "Is getting paid for participation important?",
+      subtitle: "Some trials offer compensation for your time",
+      options: [
+        { value: 'required', label: 'Yes, I want paid trials', icon: '💰', desc: 'Only show trials that likely pay' },
+        { value: 'preferred', label: 'Preferred but not required', icon: '💵', desc: 'Prioritize paid trials' },
+        { value: 'not_important', label: 'Not important', icon: '➡️', desc: 'Treatment matters more than pay' }
       ]
     },
     {
@@ -1432,10 +1482,20 @@ function MatchedTrialCard({ trial, rank, onViewDetails }) {
               #{rank}
             </div>
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPhaseColor()}`}>
                   {trial.phase || 'Phase N/A'}
                 </span>
+                {trial.compensation?.likelyPaid && (
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 flex items-center gap-1">
+                    💰 Likely Paid
+                  </span>
+                )}
+                {trial.eligibility?.healthyVolunteers && (
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                    Healthy Volunteers OK
+                  </span>
+                )}
                 <span className="text-xs text-slate-400 font-mono">{trial.id}</span>
               </div>
               <h3 className="font-medium text-slate-800 leading-snug">{trial.title}</h3>
