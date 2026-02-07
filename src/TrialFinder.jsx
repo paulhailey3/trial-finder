@@ -89,10 +89,109 @@ function parseTrialData(study) {
   };
 }
 
+// Generate personalized insight about why a trial might help
+function generateTrialInsight(trial, criteria) {
+  const insights = [];
+  const desc = (trial.description || '').toLowerCase();
+  const interventions = (trial.interventionNames || '').toLowerCase();
+
+  // Symptom-specific insights
+  if (criteria.symptoms && criteria.symptoms.length > 0) {
+    // Cancer-specific
+    if (criteria.symptoms.includes('her2_positive') && (desc.includes('her2') || interventions.includes('trastuzumab') || interventions.includes('herceptin'))) {
+      insights.push({ type: 'symptom', text: 'Targets HER2-positive tumors specifically, which matches your cancer type' });
+    }
+    if (criteria.symptoms.includes('triple_negative') && (desc.includes('triple negative') || desc.includes('tnbc'))) {
+      insights.push({ type: 'symptom', text: 'Designed for triple-negative breast cancer, which has fewer targeted options' });
+    }
+    if (criteria.symptoms.includes('egfr_mutation') && (desc.includes('egfr') || interventions.includes('egfr'))) {
+      insights.push({ type: 'symptom', text: 'Targets EGFR mutations, potentially more effective for your cancer subtype' });
+    }
+
+    // Diabetes-specific
+    if (criteria.symptoms.includes('neuropathy') && (desc.includes('neuropathy') || desc.includes('nerve'))) {
+      insights.push({ type: 'symptom', text: 'Addresses diabetic neuropathy - the tingling/numbness you experience' });
+    }
+    if (criteria.symptoms.includes('high_a1c') && (desc.includes('a1c') || desc.includes('glycemic') || desc.includes('glucose control'))) {
+      insights.push({ type: 'symptom', text: 'Focuses on improving blood sugar control and lowering A1C' });
+    }
+    if (criteria.symptoms.includes('weight') && (desc.includes('weight') || interventions.includes('glp-1') || interventions.includes('semaglutide'))) {
+      insights.push({ type: 'symptom', text: 'May help with weight management alongside blood sugar control' });
+    }
+
+    // RA-specific
+    if (criteria.symptoms.includes('biologic_failed') && (desc.includes('inadequate response') || desc.includes('refractory') || desc.includes('failed'))) {
+      insights.push({ type: 'symptom', text: 'For patients who haven\'t responded to biologics - a new mechanism of action' });
+    }
+    if (criteria.symptoms.includes('joint_pain') && (desc.includes('pain') || desc.includes('inflammation'))) {
+      insights.push({ type: 'symptom', text: 'Targets inflammation which could reduce joint pain' });
+    }
+
+    // Depression-specific
+    if (criteria.symptoms.includes('treatment_resistant') && (desc.includes('treatment-resistant') || desc.includes('refractory') || interventions.includes('ketamine') || interventions.includes('esketamine'))) {
+      insights.push({ type: 'symptom', text: 'Novel approach for depression that hasn\'t responded to standard medications' });
+    }
+    if (criteria.symptoms.includes('anxiety') && (desc.includes('anxiety') || desc.includes('anxious'))) {
+      insights.push({ type: 'symptom', text: 'Also addresses anxiety symptoms alongside depression' });
+    }
+
+    // MS-specific
+    if (criteria.symptoms.includes('relapsing') && desc.includes('relapsing')) {
+      insights.push({ type: 'symptom', text: 'Designed for relapsing-remitting MS to reduce flare frequency' });
+    }
+    if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue')) {
+      insights.push({ type: 'symptom', text: 'Targets fatigue - one of the most impactful MS symptoms' });
+    }
+
+    // Alzheimer's-specific
+    if (criteria.symptoms.includes('early_stage') && (desc.includes('early') || desc.includes('mild cognitive'))) {
+      insights.push({ type: 'symptom', text: 'For early-stage patients - intervention may be most effective now' });
+    }
+
+    // Heart disease-specific
+    if (criteria.symptoms.includes('heart_failure') && (desc.includes('heart failure') || desc.includes('ejection fraction'))) {
+      insights.push({ type: 'symptom', text: 'Targets heart failure to improve heart function and symptoms' });
+    }
+
+    // General symptom matches
+    if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue') && insights.length === 0) {
+      insights.push({ type: 'symptom', text: 'May help improve energy levels and reduce fatigue' });
+    }
+    if (criteria.symptoms.includes('pain') && desc.includes('pain') && insights.length === 0) {
+      insights.push({ type: 'symptom', text: 'Focuses on pain management and relief' });
+    }
+  }
+
+  // Goal-specific insights
+  if (criteria.goals === 'cure' && (desc.includes('remission') || desc.includes('cure') || desc.includes('disease-free'))) {
+    insights.push({ type: 'goal', text: 'Aims for disease remission or cure - aligned with your treatment goal' });
+  }
+  if (criteria.goals === 'slow' && (desc.includes('progression') || desc.includes('delay') || desc.includes('slow'))) {
+    insights.push({ type: 'goal', text: 'Designed to slow disease progression and maintain current function' });
+  }
+  if (criteria.goals === 'symptoms' && (desc.includes('quality of life') || desc.includes('symptom') || desc.includes('tolerability'))) {
+    insights.push({ type: 'goal', text: 'Focuses on symptom relief and improving daily quality of life' });
+  }
+
+  // Treatment history insights
+  if (criteria.priorTreatments === 'many' && (desc.includes('refractory') || desc.includes('failed') || desc.includes('novel'))) {
+    insights.push({ type: 'history', text: 'Novel approach for patients who\'ve tried multiple treatments' });
+  }
+  if (criteria.priorTreatments === 'none' && (desc.includes('first-line') || desc.includes('treatment-naive') || desc.includes('newly diagnosed'))) {
+    insights.push({ type: 'history', text: 'Appropriate for patients starting their first treatment' });
+  }
+
+  return insights.slice(0, 3); // Return top 3 insights
+}
+
 // Score trial match quality based on user criteria
 function scoreTrialMatch(trial, criteria) {
   let score = 0;
   let matchReasons = [];
+
+  // Generate personalized insights
+  const insights = generateTrialInsight(trial, criteria);
+  const insightTexts = insights.map(i => i.text);
 
   // Location match
   if (criteria.location && trial.locations.length > 0) {
@@ -218,8 +317,94 @@ function scoreTrialMatch(trial, criteria) {
     }
   }
 
-  return { score, matchReasons };
+  // Boost score based on personalized insights
+  score += insights.length * 20;
+
+  // Add symptom/goal match reasons if we have insights
+  if (insights.length > 0) {
+    matchReasons.push('💡 Addresses your specific needs');
+  }
+
+  return { score, matchReasons, insights: insightTexts };
 }
+
+// Condition-specific symptoms and characteristics
+const conditionSymptoms = {
+  'breast cancer': [
+    { value: 'her2_positive', label: 'HER2-positive', icon: '🧬', desc: 'Tumor overexpresses HER2 protein' },
+    { value: 'hormone_positive', label: 'Hormone receptor positive (ER/PR+)', icon: '💊', desc: 'Responds to hormone therapy' },
+    { value: 'triple_negative', label: 'Triple-negative', icon: '⚡', desc: 'ER-, PR-, HER2-' },
+    { value: 'metastatic', label: 'Metastatic/Stage 4', icon: '📍', desc: 'Has spread to other areas' },
+    { value: 'fatigue', label: 'Fatigue', icon: '😴', desc: 'Ongoing tiredness' },
+    { value: 'pain', label: 'Pain management needs', icon: '🩹', desc: 'Cancer-related pain' }
+  ],
+  'lung cancer': [
+    { value: 'nsclc', label: 'Non-small cell (NSCLC)', icon: '🫁', desc: 'Most common type' },
+    { value: 'sclc', label: 'Small cell (SCLC)', icon: '🔬', desc: 'Aggressive form' },
+    { value: 'egfr_mutation', label: 'EGFR mutation', icon: '🧬', desc: 'May respond to targeted therapy' },
+    { value: 'alk_positive', label: 'ALK-positive', icon: '🎯', desc: 'ALK gene rearrangement' },
+    { value: 'breathing', label: 'Breathing difficulties', icon: '💨', desc: 'Shortness of breath' },
+    { value: 'cough', label: 'Persistent cough', icon: '😮‍💨', desc: 'Chronic coughing' }
+  ],
+  'type 2 diabetes': [
+    { value: 'high_a1c', label: 'High A1C (>8%)', icon: '📊', desc: 'Blood sugar not well controlled' },
+    { value: 'neuropathy', label: 'Neuropathy', icon: '🦶', desc: 'Tingling or numbness in extremities' },
+    { value: 'retinopathy', label: 'Eye problems', icon: '👁️', desc: 'Vision changes or retinopathy' },
+    { value: 'kidney', label: 'Kidney concerns', icon: '🫘', desc: 'Early kidney disease signs' },
+    { value: 'weight', label: 'Weight management', icon: '⚖️', desc: 'Difficulty losing weight' },
+    { value: 'insulin_resistance', label: 'Insulin resistance', icon: '💉', desc: 'Body doesn\'t respond well to insulin' }
+  ],
+  'alzheimer': [
+    { value: 'early_stage', label: 'Early/mild stage', icon: '🌅', desc: 'Recent diagnosis, mild symptoms' },
+    { value: 'moderate', label: 'Moderate stage', icon: '🌤️', desc: 'Increasing memory issues' },
+    { value: 'memory_loss', label: 'Memory loss', icon: '🧠', desc: 'Forgetting recent events' },
+    { value: 'confusion', label: 'Confusion', icon: '❓', desc: 'Disorientation or confusion' },
+    { value: 'behavioral', label: 'Behavioral changes', icon: '😔', desc: 'Mood or personality changes' },
+    { value: 'family_history', label: 'Family history', icon: '👨‍👩‍👧', desc: 'Genetic risk factors' }
+  ],
+  'rheumatoid arthritis': [
+    { value: 'joint_pain', label: 'Joint pain', icon: '🦴', desc: 'Pain in joints' },
+    { value: 'swelling', label: 'Swelling/inflammation', icon: '🔴', desc: 'Swollen joints' },
+    { value: 'fatigue', label: 'Fatigue', icon: '😴', desc: 'Chronic tiredness' },
+    { value: 'morning_stiffness', label: 'Morning stiffness', icon: '🌅', desc: 'Stiff joints in the morning' },
+    { value: 'multiple_joints', label: 'Multiple joints affected', icon: '🤲', desc: 'Many joints involved' },
+    { value: 'biologic_failed', label: 'Biologics not working', icon: '💊', desc: 'Prior biologic therapy failed' }
+  ],
+  'depression': [
+    { value: 'persistent_sadness', label: 'Persistent sadness', icon: '😢', desc: 'Ongoing low mood' },
+    { value: 'anxiety', label: 'Anxiety', icon: '😰', desc: 'Co-occurring anxiety' },
+    { value: 'sleep_issues', label: 'Sleep problems', icon: '🛏️', desc: 'Insomnia or oversleeping' },
+    { value: 'low_energy', label: 'Low energy', icon: '🔋', desc: 'Fatigue or lack of motivation' },
+    { value: 'treatment_resistant', label: 'Treatment-resistant', icon: '🔄', desc: 'Medications haven\'t worked well' },
+    { value: 'concentration', label: 'Concentration issues', icon: '🎯', desc: 'Difficulty focusing' }
+  ],
+  'heart disease': [
+    { value: 'heart_failure', label: 'Heart failure', icon: '❤️', desc: 'Reduced heart function' },
+    { value: 'arrhythmia', label: 'Irregular heartbeat', icon: '💓', desc: 'Arrhythmia or AFib' },
+    { value: 'chest_pain', label: 'Chest pain/angina', icon: '😣', desc: 'Chest discomfort' },
+    { value: 'shortness_breath', label: 'Shortness of breath', icon: '💨', desc: 'Difficulty breathing' },
+    { value: 'high_cholesterol', label: 'High cholesterol', icon: '📊', desc: 'Elevated lipid levels' },
+    { value: 'prior_event', label: 'Prior heart attack/stroke', icon: '⚡', desc: 'History of cardiac event' }
+  ],
+  'multiple sclerosis': [
+    { value: 'relapsing', label: 'Relapsing-remitting (RRMS)', icon: '🔄', desc: 'Episodes with recovery' },
+    { value: 'progressive', label: 'Progressive MS', icon: '📈', desc: 'Gradually worsening' },
+    { value: 'fatigue', label: 'Fatigue', icon: '😴', desc: 'MS-related exhaustion' },
+    { value: 'mobility', label: 'Mobility issues', icon: '🚶', desc: 'Walking or balance problems' },
+    { value: 'cognitive', label: 'Cognitive fog', icon: '🌫️', desc: 'Thinking or memory issues' },
+    { value: 'vision', label: 'Vision problems', icon: '👁️', desc: 'Optic neuritis or blurry vision' }
+  ]
+};
+
+// Default symptoms for conditions not in our list
+const defaultSymptoms = [
+  { value: 'pain', label: 'Pain', icon: '🩹', desc: 'Physical discomfort' },
+  { value: 'fatigue', label: 'Fatigue', icon: '😴', desc: 'Tiredness or low energy' },
+  { value: 'functional', label: 'Functional limitations', icon: '🚶', desc: 'Difficulty with daily activities' },
+  { value: 'emotional', label: 'Emotional impact', icon: '😔', desc: 'Affecting mood or mental health' },
+  { value: 'side_effects', label: 'Treatment side effects', icon: '💊', desc: 'Current treatment causing issues' },
+  { value: 'worsening', label: 'Getting worse', icon: '📈', desc: 'Condition is progressing' }
+];
 
 // Focused Onboarding Flow
 function FocusedOnboarding({ onComplete }) {
@@ -272,6 +457,38 @@ function FocusedOnboarding({ onComplete }) {
         { value: 'active_treatment', label: 'Currently in treatment', icon: '💊', desc: 'Undergoing treatment now' },
         { value: 'alternatives', label: 'Need different options', icon: '🔄', desc: 'Current treatment not working well' },
         { value: 'prevention', label: 'Prevention or early detection', icon: '🛡️', desc: 'At risk or interested in prevention' }
+      ]
+    },
+    {
+      type: 'multiselect',
+      key: 'symptoms',
+      title: "What symptoms or challenges are most impactful?",
+      subtitle: "Select all that apply - we'll look for trials that address these",
+      dynamic: true, // Will be populated based on condition
+      options: [] // Populated dynamically
+    },
+    {
+      type: 'question',
+      key: 'priorTreatments',
+      title: "What treatments have been tried?",
+      subtitle: "This helps identify trials for your treatment history",
+      options: [
+        { value: 'none', label: 'No treatment yet', icon: '🆕', desc: 'Treatment-naive' },
+        { value: 'one', label: 'One prior treatment', icon: '1️⃣', desc: 'Tried one medication or therapy' },
+        { value: 'multiple', label: 'Multiple treatments', icon: '🔢', desc: 'Tried several options' },
+        { value: 'many', label: 'Exhausted standard options', icon: '🔍', desc: 'Looking for novel approaches' }
+      ]
+    },
+    {
+      type: 'question',
+      key: 'goals',
+      title: "What's the primary goal of treatment?",
+      subtitle: "Different trials focus on different outcomes",
+      options: [
+        { value: 'cure', label: 'Cure or remission', icon: '🎯', desc: 'Eliminate the disease' },
+        { value: 'slow', label: 'Slow progression', icon: '⏸️', desc: 'Prevent it from getting worse' },
+        { value: 'symptoms', label: 'Manage symptoms', icon: '🌡️', desc: 'Improve quality of life' },
+        { value: 'understand', label: 'Better understand my condition', icon: '🔬', desc: 'Diagnostic or monitoring studies' }
       ]
     },
     {
@@ -354,7 +571,28 @@ function FocusedOnboarding({ onComplete }) {
     }
   ];
 
-  const currentStep = steps[step];
+  // Get the current step, with dynamic symptom population
+  const getCurrentStep = () => {
+    const baseStep = steps[step];
+    if (baseStep.key === 'symptoms' && baseStep.dynamic) {
+      // Get symptoms for the selected condition
+      const condition = answers.condition?.toLowerCase() || '';
+      let symptoms = defaultSymptoms;
+
+      // Find matching condition symptoms
+      for (const [key, value] of Object.entries(conditionSymptoms)) {
+        if (condition.includes(key) || key.includes(condition)) {
+          symptoms = value;
+          break;
+        }
+      }
+
+      return { ...baseStep, options: symptoms };
+    }
+    return baseStep;
+  };
+
+  const currentStep = getCurrentStep();
   const progress = ((step) / (steps.length - 1)) * 100;
 
   const handleSelect = (key, value) => {
@@ -832,7 +1070,27 @@ function MatchedTrialCard({ trial, rank, onViewDetails }) {
 
       {/* Body */}
       <div className="p-5">
-        {/* Match reasons */}
+        {/* Personalized Insights - Why this trial might help YOU */}
+        {trial.insights && trial.insights.length > 0 && (
+          <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-4 mb-4">
+            <h4 className="font-medium text-amber-800 text-sm mb-2 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              Why this trial might help you
+            </h4>
+            <ul className="space-y-1.5">
+              {trial.insights.map((insight, i) => (
+                <li key={i} className="text-sm text-amber-900 flex items-start gap-2">
+                  <span className="text-amber-500 mt-0.5">→</span>
+                  {insight}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Match reasons badges */}
         {trial.matchReasons && trial.matchReasons.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
             {trial.matchReasons.map((reason, i) => (
@@ -1048,6 +1306,26 @@ function TrialDetailModal({ trial, criteria, onClose }) {
           <h2 className="text-xl font-semibold text-slate-800 mb-2">{trial.title}</h2>
           <p className="text-slate-500 mb-6">Sponsored by {trial.sponsor} | Phase: {trial.phase}</p>
 
+          {/* Personalized Insights */}
+          {trial.insights && trial.insights.length > 0 && (
+            <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-5 mb-6">
+              <h4 className="font-semibold text-amber-800 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                How this trial addresses your specific situation
+              </h4>
+              <ul className="space-y-2">
+                {trial.insights.map((insight, i) => (
+                  <li key={i} className="text-amber-900 flex items-start gap-3">
+                    <span className="w-6 h-6 bg-amber-200 rounded-full flex items-center justify-center shrink-0 text-amber-800 text-sm font-medium">{i + 1}</span>
+                    <span>{insight}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Match indicators */}
           {trial.matchReasons && trial.matchReasons.length > 0 && (
             <div className="bg-teal-50 border border-teal-100 rounded-xl p-4 mb-6">
@@ -1055,7 +1333,7 @@ function TrialDetailModal({ trial, criteria, onClose }) {
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Why this trial matches your search
+                Additional match factors
               </h4>
               <div className="flex flex-wrap gap-2">
                 {trial.matchReasons.map((reason, i) => (
