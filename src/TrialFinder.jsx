@@ -89,96 +89,174 @@ function parseTrialData(study) {
   };
 }
 
-// Generate personalized insight about why a trial might help
+// Generate personalized insight about why a trial might help - WITH DETAILED EXPLANATIONS
 function generateTrialInsight(trial, criteria) {
   const insights = [];
   const desc = (trial.description || '').toLowerCase();
   const interventions = (trial.interventionNames || '').toLowerCase();
 
-  // Symptom-specific insights
+  // Symptom-specific insights - DETAILED
   if (criteria.symptoms && criteria.symptoms.length > 0) {
     // Cancer-specific
     if (criteria.symptoms.includes('her2_positive') && (desc.includes('her2') || interventions.includes('trastuzumab') || interventions.includes('herceptin'))) {
-      insights.push({ type: 'symptom', text: 'Targets HER2-positive tumors specifically, which matches your cancer type' });
+      insights.push({
+        title: 'Matches your HER2+ status',
+        text: 'HER2-positive tumors have excess HER2 protein that drives cancer growth. This trial uses treatments designed to block that specific protein, which can be more effective than standard chemotherapy for HER2+ patients.'
+      });
     }
     if (criteria.symptoms.includes('triple_negative') && (desc.includes('triple negative') || desc.includes('tnbc'))) {
-      insights.push({ type: 'symptom', text: 'Designed for triple-negative breast cancer, which has fewer targeted options' });
+      insights.push({
+        title: 'Designed for triple-negative breast cancer',
+        text: 'TNBC lacks the receptors most targeted therapies use, leaving fewer treatment options. This trial is researching new approaches specifically for TNBC - immunotherapies and novel agents showing promise for this harder-to-treat subtype.'
+      });
     }
     if (criteria.symptoms.includes('egfr_mutation') && (desc.includes('egfr') || interventions.includes('egfr'))) {
-      insights.push({ type: 'symptom', text: 'Targets EGFR mutations, potentially more effective for your cancer subtype' });
+      insights.push({
+        title: 'Targets your EGFR mutation',
+        text: 'EGFR mutations cause uncontrolled cell growth. This trial uses drugs that block that specific mutation. EGFR+ patients often respond dramatically better to targeted therapy than traditional chemo - sometimes with 70%+ response rates.'
+      });
     }
 
     // Diabetes-specific
     if (criteria.symptoms.includes('neuropathy') && (desc.includes('neuropathy') || desc.includes('nerve'))) {
-      insights.push({ type: 'symptom', text: 'Addresses diabetic neuropathy - the tingling/numbness you experience' });
+      insights.push({
+        title: 'Addresses your neuropathy',
+        text: 'Diabetic neuropathy (tingling, numbness, pain in hands/feet) affects up to 50% of diabetics. This trial investigates treatments that may protect or repair nerve damage - not just mask symptoms. Early intervention may help preserve nerve function.'
+      });
     }
     if (criteria.symptoms.includes('high_a1c') && (desc.includes('a1c') || desc.includes('glycemic') || desc.includes('glucose control'))) {
-      insights.push({ type: 'symptom', text: 'Focuses on improving blood sugar control and lowering A1C' });
+      insights.push({
+        title: 'Focused on lowering A1C',
+        text: 'With an A1C above 8%, improved blood sugar control could significantly reduce complication risks. Every 1% A1C reduction can lower risk of eye, kidney, and nerve damage by up to 40%. This trial tests more effective glucose control approaches.'
+      });
     }
     if (criteria.symptoms.includes('weight') && (desc.includes('weight') || interventions.includes('glp-1') || interventions.includes('semaglutide'))) {
-      insights.push({ type: 'symptom', text: 'May help with weight management alongside blood sugar control' });
+      insights.push({
+        title: 'May help with weight management',
+        text: 'Newer diabetes medications (GLP-1 agonists) can help with both blood sugar AND weight - often 10-15% body weight loss. This dual benefit is valuable since excess weight makes diabetes harder to control, creating a positive cycle.'
+      });
     }
 
     // RA-specific
     if (criteria.symptoms.includes('biologic_failed') && (desc.includes('inadequate response') || desc.includes('refractory') || desc.includes('failed'))) {
-      insights.push({ type: 'symptom', text: 'For patients who haven\'t responded to biologics - a new mechanism of action' });
+      insights.push({
+        title: 'New option after biologic failure',
+        text: 'When TNF inhibitors or other biologics haven\'t worked, it\'s frustrating. This trial uses a different mechanism of action - targeting different immune pathways. Your body may respond to this new approach even when standard biologics failed.'
+      });
     }
     if (criteria.symptoms.includes('joint_pain') && (desc.includes('pain') || desc.includes('inflammation'))) {
-      insights.push({ type: 'symptom', text: 'Targets inflammation which could reduce joint pain' });
+      insights.push({
+        title: 'Targets the source of joint pain',
+        text: 'RA pain comes from inflammation attacking your joints. This trial aims to reduce inflammation at its source - which should reduce pain AND prevent further joint damage. Controlling inflammation early can preserve joint function for years.'
+      });
     }
 
     // Depression-specific
     if (criteria.symptoms.includes('treatment_resistant') && (desc.includes('treatment-resistant') || desc.includes('refractory') || interventions.includes('ketamine') || interventions.includes('esketamine'))) {
-      insights.push({ type: 'symptom', text: 'Novel approach for depression that hasn\'t responded to standard medications' });
+      insights.push({
+        title: 'For treatment-resistant depression',
+        text: 'When multiple antidepressants haven\'t worked, you may have TRD. This trial tests newer approaches (like ketamine-based treatments) that work differently than SSRIs - affecting glutamate rather than serotonin. Some patients see improvement within hours, not weeks.'
+      });
     }
     if (criteria.symptoms.includes('anxiety') && (desc.includes('anxiety') || desc.includes('anxious'))) {
-      insights.push({ type: 'symptom', text: 'Also addresses anxiety symptoms alongside depression' });
+      insights.push({
+        title: 'Addresses co-occurring anxiety',
+        text: 'Depression and anxiety often occur together (up to 60% of cases), making treatment complex. This trial addresses both conditions - important because treating only one can leave you still struggling. Combined improvement often leads to better outcomes.'
+      });
     }
 
     // MS-specific
     if (criteria.symptoms.includes('relapsing') && desc.includes('relapsing')) {
-      insights.push({ type: 'symptom', text: 'Designed for relapsing-remitting MS to reduce flare frequency' });
+      insights.push({
+        title: 'For relapsing-remitting MS',
+        text: 'RRMS involves episodes of new symptoms followed by recovery. This trial aims to reduce relapse frequency and severity - each relapse can cause lasting damage, so fewer relapses means better long-term neurological preservation.'
+      });
     }
     if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue')) {
-      insights.push({ type: 'symptom', text: 'Targets fatigue - one of the most impactful MS symptoms' });
+      insights.push({
+        title: 'Targets MS fatigue',
+        text: 'MS fatigue isn\'t regular tiredness - it\'s overwhelming exhaustion affecting 80% of MS patients, often the most disabling symptom. This trial specifically measures fatigue improvement, not just other MS markers.'
+      });
     }
 
     // Alzheimer's-specific
     if (criteria.symptoms.includes('early_stage') && (desc.includes('early') || desc.includes('mild cognitive'))) {
-      insights.push({ type: 'symptom', text: 'For early-stage patients - intervention may be most effective now' });
+      insights.push({
+        title: 'Optimal timing for intervention',
+        text: 'Early-stage Alzheimer\'s is likely the best window for treatment. Newer therapies aim to slow decline before significant brain damage occurs. Research suggests intervening early, when there\'s more function to preserve, may be most effective.'
+      });
     }
 
     // Heart disease-specific
     if (criteria.symptoms.includes('heart_failure') && (desc.includes('heart failure') || desc.includes('ejection fraction'))) {
-      insights.push({ type: 'symptom', text: 'Targets heart failure to improve heart function and symptoms' });
+      insights.push({
+        title: 'Addresses heart failure',
+        text: 'Heart failure means your heart can\'t pump efficiently. This trial tests treatments to improve heart function, reduce hospitalizations, and improve daily symptoms. Newer HF medications have shown 20-30% reductions in hospitalization and death risk.'
+      });
     }
 
     // General symptom matches
     if (criteria.symptoms.includes('fatigue') && desc.includes('fatigue') && insights.length === 0) {
-      insights.push({ type: 'symptom', text: 'May help improve energy levels and reduce fatigue' });
+      insights.push({
+        title: 'Addresses your fatigue',
+        text: 'This trial specifically measures fatigue as an outcome - meaning researchers track whether you actually feel less tired, not just lab values. Patient-reported outcomes like this ensure your real-world experience matters.'
+      });
     }
     if (criteria.symptoms.includes('pain') && desc.includes('pain') && insights.length === 0) {
-      insights.push({ type: 'symptom', text: 'Focuses on pain management and relief' });
+      insights.push({
+        title: 'Pain management focus',
+        text: 'This trial includes pain as a measured outcome. Researchers track whether treatment actually reduces your daily pain experience, ensuring your quality of life - not just disease markers - is a priority.'
+      });
     }
   }
 
-  // Goal-specific insights
+  // Goal-specific insights - DETAILED
   if (criteria.goals === 'cure' && (desc.includes('remission') || desc.includes('cure') || desc.includes('disease-free'))) {
-    insights.push({ type: 'goal', text: 'Aims for disease remission or cure - aligned with your treatment goal' });
+    insights.push({
+      title: 'Aims for remission or cure',
+      text: 'This trial\'s primary goal aligns with yours: achieving disease remission. The study measures "complete response" or "disease-free" status - meaning they\'re looking for substantial elimination of disease, not just management or slowing progression.'
+    });
   }
   if (criteria.goals === 'slow' && (desc.includes('progression') || desc.includes('delay') || desc.includes('slow'))) {
-    insights.push({ type: 'goal', text: 'Designed to slow disease progression and maintain current function' });
+    insights.push({
+      title: 'Designed to slow progression',
+      text: 'This trial aims to slow or halt disease progression. Even when a cure isn\'t possible, slowing progression can mean years of preserved function and quality of life - maintaining independence longer.'
+    });
   }
   if (criteria.goals === 'symptoms' && (desc.includes('quality of life') || desc.includes('symptom') || desc.includes('tolerability'))) {
-    insights.push({ type: 'goal', text: 'Focuses on symptom relief and improving daily quality of life' });
+    insights.push({
+      title: 'Quality of life focused',
+      text: 'This trial specifically measures quality of life and symptom improvement. This patient-centered approach ensures researchers care about how you actually feel day-to-day, not just whether lab values improve.'
+    });
   }
 
-  // Treatment history insights
+  // Treatment history insights - DETAILED
   if (criteria.priorTreatments === 'many' && (desc.includes('refractory') || desc.includes('failed') || desc.includes('novel'))) {
-    insights.push({ type: 'history', text: 'Novel approach for patients who\'ve tried multiple treatments' });
+    insights.push({
+      title: 'For treatment-experienced patients',
+      text: 'This trial is designed for patients who\'ve tried multiple treatments. The experimental approach uses a different mechanism that may work when standard options haven\'t. Your extensive treatment history actually qualifies you for this study.'
+    });
   }
   if (criteria.priorTreatments === 'none' && (desc.includes('first-line') || desc.includes('treatment-naive') || desc.includes('newly diagnosed'))) {
-    insights.push({ type: 'history', text: 'Appropriate for patients starting their first treatment' });
+    insights.push({
+      title: 'Appropriate as first treatment',
+      text: 'This trial is for patients who haven\'t started treatment yet. Starting with a trial drug can be advantageous - your body hasn\'t developed resistance to other treatments, which often improves response rates to experimental therapies.'
+    });
+  }
+
+  // Add phase context if few insights
+  if (insights.length < 2 && trial.phase) {
+    if (trial.phase.includes('3')) {
+      insights.push({
+        title: 'Phase 3: Final stage before approval',
+        text: 'This treatment has already shown promise in earlier trials and is now being tested for FDA approval. You\'d help confirm its effectiveness while potentially accessing a treatment that could be approved within 1-2 years.'
+      });
+    } else if (trial.phase.includes('2')) {
+      insights.push({
+        title: 'Phase 2: Testing effectiveness',
+        text: 'This treatment passed initial safety testing and is now being evaluated for how well it works. Phase 2 trials help determine optimal dosing and identify which patients benefit most.'
+      });
+    }
   }
 
   return insights.slice(0, 3); // Return top 3 insights
@@ -189,9 +267,8 @@ function scoreTrialMatch(trial, criteria) {
   let score = 0;
   let matchReasons = [];
 
-  // Generate personalized insights
+  // Generate personalized insights (now includes title and text)
   const insights = generateTrialInsight(trial, criteria);
-  const insightTexts = insights.map(i => i.text);
 
   // Location match
   if (criteria.location && trial.locations.length > 0) {
@@ -325,7 +402,7 @@ function scoreTrialMatch(trial, criteria) {
     matchReasons.push('💡 Addresses your specific needs');
   }
 
-  return { score, matchReasons, insights: insightTexts };
+  return { score, matchReasons, insights };
 }
 
 // Generate explanations for what doesn't match the user's criteria
@@ -1270,20 +1347,22 @@ function MatchedTrialCard({ trial, rank, onViewDetails }) {
         {/* Personalized Insights - Why this trial might help YOU */}
         {trial.insights && trial.insights.length > 0 && (
           <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-4 mb-4">
-            <h4 className="font-medium text-amber-800 text-sm mb-2 flex items-center gap-2">
+            <h4 className="font-medium text-amber-800 text-sm mb-3 flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
-              Why this trial might still help you
+              Why this trial might be a good fit for you
             </h4>
-            <ul className="space-y-1.5">
+            <div className="space-y-3">
               {trial.insights.map((insight, i) => (
-                <li key={i} className="text-sm text-amber-900 flex items-start gap-2">
-                  <span className="text-amber-500 mt-0.5">→</span>
-                  {insight}
-                </li>
+                <div key={i} className="border-l-2 border-amber-300 pl-3">
+                  <p className="font-medium text-amber-900 text-sm">{insight.title || insight}</p>
+                  {insight.text && (
+                    <p className="text-xs text-amber-800 mt-1 leading-relaxed">{insight.text}</p>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         )}
 
@@ -1529,20 +1608,25 @@ function TrialDetailModal({ trial, criteria, onClose }) {
           {/* Personalized Insights */}
           {trial.insights && trial.insights.length > 0 && (
             <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-5 mb-6">
-              <h4 className="font-semibold text-amber-800 mb-3 flex items-center gap-2">
+              <h4 className="font-semibold text-amber-800 mb-4 flex items-center gap-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
-                {trial.differences?.length > 0 ? 'Why this trial might still help you' : 'How this trial addresses your situation'}
+                {trial.differences?.length > 0 ? 'Why this trial might still be a good fit' : 'Why this trial is a good fit for you'}
               </h4>
-              <ul className="space-y-2">
+              <div className="space-y-4">
                 {trial.insights.map((insight, i) => (
-                  <li key={i} className="text-amber-900 flex items-start gap-3">
-                    <span className="w-6 h-6 bg-amber-200 rounded-full flex items-center justify-center shrink-0 text-amber-800 text-sm font-medium">{i + 1}</span>
-                    <span>{insight}</span>
-                  </li>
+                  <div key={i} className="flex items-start gap-3">
+                    <span className="w-7 h-7 bg-amber-200 rounded-full flex items-center justify-center shrink-0 text-amber-800 text-sm font-bold">{i + 1}</span>
+                    <div>
+                      <p className="font-medium text-amber-900">{insight.title || insight}</p>
+                      {insight.text && (
+                        <p className="text-sm text-amber-800 mt-1 leading-relaxed">{insight.text}</p>
+                      )}
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 
