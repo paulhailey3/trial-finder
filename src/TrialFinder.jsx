@@ -104,42 +104,118 @@ function scoreTrialMatch(trial, criteria) {
     );
     if (hasNearbyLocation) {
       score += 30;
-      matchReasons.push('Location near you');
+      matchReasons.push('📍 Location matches');
+    }
+  }
+
+  // Age match
+  if (criteria.age && trial.eligibility.minAge && trial.eligibility.maxAge) {
+    const ageRanges = {
+      'under18': { min: 0, max: 17 },
+      '18-40': { min: 18, max: 40 },
+      '41-64': { min: 41, max: 64 },
+      '65plus': { min: 65, max: 120 }
+    };
+    const userRange = ageRanges[criteria.age];
+    if (userRange) {
+      const trialMin = parseInt(trial.eligibility.minAge) || 0;
+      const trialMax = parseInt(trial.eligibility.maxAge) || 120;
+      if (userRange.min >= trialMin && userRange.max <= trialMax) {
+        score += 25;
+        matchReasons.push('✓ Age eligible');
+      }
+    }
+  }
+
+  // Sex match
+  if (criteria.sex && criteria.sex !== 'any') {
+    const trialSex = trial.eligibility.sex?.toLowerCase();
+    if (trialSex === 'all' || trialSex === criteria.sex) {
+      score += 15;
     }
   }
 
   // Phase preference
   if (criteria.phasePreference === 'proven' && trial.phase.includes('3')) {
     score += 20;
-    matchReasons.push('Phase 3 - more established');
+    matchReasons.push('Phase 3 - established');
   } else if (criteria.phasePreference === 'cutting_edge' && (trial.phase.includes('1') || trial.phase.includes('2'))) {
     score += 20;
-    matchReasons.push('Early phase - newest treatments');
+    matchReasons.push('🔬 Cutting-edge treatment');
   }
 
   // Has contact info (easier to reach)
   if (trial.contact?.email || trial.contact?.phone) {
     score += 15;
-    matchReasons.push('Direct contact available');
+    matchReasons.push('📞 Direct contact');
   }
 
   // Academic medical center (often higher quality)
-  if (trial.sponsorType === 'OTHER' || trial.sponsor?.toLowerCase().includes('university') ||
-      trial.sponsor?.toLowerCase().includes('hospital') || trial.sponsor?.toLowerCase().includes('medical center')) {
+  const isAcademic = trial.sponsorType === 'OTHER' ||
+    trial.sponsor?.toLowerCase().includes('university') ||
+    trial.sponsor?.toLowerCase().includes('hospital') ||
+    trial.sponsor?.toLowerCase().includes('medical center') ||
+    trial.sponsor?.toLowerCase().includes('institute');
+
+  if (isAcademic) {
     score += 10;
-    matchReasons.push('Academic institution');
+    if (criteria.priorities?.includes('academic')) {
+      score += 15;
+      matchReasons.push('🏛️ Top institution');
+    }
   }
 
-  // Currently enrolling with multiple locations
-  if (trial.locations.length >= 3) {
+  // Multiple locations (good for travel flexibility)
+  if (trial.locations.length >= 5) {
     score += 10;
-    matchReasons.push('Multiple locations');
+    matchReasons.push('🗺️ Many locations');
+  } else if (trial.locations.length >= 3) {
+    score += 5;
   }
 
-  // Has healthy volunteer option if user is caregiver researching prevention
+  // Prevention studies for those interested
   if (criteria.purpose === 'prevention' && trial.eligibility.healthyVolunteers === 'Yes') {
-    score += 15;
-    matchReasons.push('Accepts healthy volunteers');
+    score += 20;
+    matchReasons.push('🛡️ Prevention study');
+  }
+
+  // Priority matching
+  if (criteria.priorities) {
+    if (criteria.priorities.includes('free_care')) {
+      // Most trials cover treatment costs
+      score += 5;
+      matchReasons.push('💵 Treatment covered');
+    }
+    if (criteria.priorities.includes('quality_of_life')) {
+      // Check if description mentions quality of life
+      if (trial.description?.toLowerCase().includes('quality of life') ||
+          trial.description?.toLowerCase().includes('side effect') ||
+          trial.description?.toLowerCase().includes('tolerability')) {
+        score += 10;
+        matchReasons.push('🌟 QoL focused');
+      }
+    }
+  }
+
+  // Boost for newly diagnosed if looking at first-line treatments
+  if (criteria.purpose === 'newly_diagnosed') {
+    if (trial.description?.toLowerCase().includes('first-line') ||
+        trial.description?.toLowerCase().includes('treatment-naive') ||
+        trial.description?.toLowerCase().includes('newly diagnosed')) {
+      score += 15;
+      matchReasons.push('👋 For newly diagnosed');
+    }
+  }
+
+  // Boost for alternatives seekers
+  if (criteria.purpose === 'alternatives') {
+    if (trial.description?.toLowerCase().includes('refractory') ||
+        trial.description?.toLowerCase().includes('relapsed') ||
+        trial.description?.toLowerCase().includes('failed') ||
+        trial.description?.toLowerCase().includes('second-line')) {
+      score += 15;
+      matchReasons.push('🔄 For treatment-experienced');
+    }
   }
 
   return { score, matchReasons };
@@ -155,7 +231,18 @@ function FocusedOnboarding({ onComplete }) {
     {
       type: 'intro',
       title: "Find Your Best Trial Matches",
-      subtitle: "Answer 4 quick questions to get personalized recommendations"
+      subtitle: "Answer a few questions to get personalized recommendations"
+    },
+    {
+      type: 'question',
+      key: 'userType',
+      title: "Who are you searching for?",
+      subtitle: "This helps us tailor the information we show",
+      options: [
+        { value: 'self', label: "Myself", icon: '👤', desc: "I'm the patient" },
+        { value: 'loved_one', label: 'A family member or friend', icon: '👨‍👩‍👧', desc: "I'm helping someone I care about" },
+        { value: 'provider', label: "I'm a healthcare provider", icon: '⚕️', desc: 'Researching options for a patient' }
+      ]
     },
     {
       type: 'question',
@@ -168,69 +255,101 @@ function FocusedOnboarding({ onComplete }) {
         { value: 'type 2 diabetes', label: 'Type 2 Diabetes', icon: '💉' },
         { value: 'alzheimer', label: "Alzheimer's Disease", icon: '🧠' },
         { value: 'rheumatoid arthritis', label: 'Rheumatoid Arthritis', icon: '🦴' },
-        { value: 'depression', label: 'Depression', icon: '💭' }
+        { value: 'depression', label: 'Depression', icon: '💭' },
+        { value: 'heart disease', label: 'Heart Disease', icon: '❤️' },
+        { value: 'multiple sclerosis', label: 'Multiple Sclerosis', icon: '🧬' }
       ],
       allowCustom: true,
       customPlaceholder: "Or type your specific condition..."
     },
     {
       type: 'question',
+      key: 'purpose',
+      title: "What best describes the situation?",
+      subtitle: "This helps us find the most relevant trials",
+      options: [
+        { value: 'newly_diagnosed', label: 'Newly diagnosed', icon: '📋', desc: 'Recently received this diagnosis' },
+        { value: 'active_treatment', label: 'Currently in treatment', icon: '💊', desc: 'Undergoing treatment now' },
+        { value: 'alternatives', label: 'Need different options', icon: '🔄', desc: 'Current treatment not working well' },
+        { value: 'prevention', label: 'Prevention or early detection', icon: '🛡️', desc: 'At risk or interested in prevention' }
+      ]
+    },
+    {
+      type: 'question',
+      key: 'age',
+      title: "What is the patient's age?",
+      subtitle: "Many trials have specific age requirements",
+      options: [
+        { value: 'under18', label: 'Under 18', icon: '👶', desc: 'Pediatric trials' },
+        { value: '18-40', label: '18-40 years', icon: '👤', desc: 'Young adult' },
+        { value: '41-64', label: '41-64 years', icon: '🧑', desc: 'Adult' },
+        { value: '65plus', label: '65 or older', icon: '👴', desc: 'Older adult' }
+      ]
+    },
+    {
+      type: 'question',
+      key: 'sex',
+      title: "What is the patient's biological sex?",
+      subtitle: "Some trials have sex-specific eligibility",
+      options: [
+        { value: 'female', label: 'Female', icon: '♀️' },
+        { value: 'male', label: 'Male', icon: '♂️' },
+        { value: 'any', label: 'Prefer not to say', icon: '➡️', desc: "Show all trials" }
+      ]
+    },
+    {
+      type: 'question',
       key: 'location',
       title: "Where would you like to receive treatment?",
-      subtitle: "Enter a city, state, or leave blank for all locations",
+      subtitle: "Enter a city, state, or country",
       freeText: true,
       placeholder: "e.g., Boston, MA or California"
     },
     {
       type: 'question',
-      key: 'phasePreference',
-      title: "What type of treatment interests you?",
-      subtitle: "This helps us prioritize trials",
+      key: 'travelWillingness',
+      title: "How far are you willing to travel?",
+      subtitle: "Some trials require regular visits to the study site",
       options: [
-        {
-          value: 'cutting_edge',
-          label: 'Newest innovations',
-          icon: '🔬',
-          desc: 'Early-phase trials with experimental treatments'
-        },
-        {
-          value: 'proven',
-          label: 'More established treatments',
-          icon: '✅',
-          desc: 'Later-phase trials with more safety data'
-        },
-        {
-          value: 'any',
-          label: 'Show me all options',
-          icon: '📋',
-          desc: "I want to see different types"
-        }
+        { value: 'local', label: 'Stay close to home', icon: '🏠', desc: 'Within 30 miles' },
+        { value: 'regional', label: 'Willing to travel some', icon: '🚗', desc: 'Within my state or region' },
+        { value: 'national', label: 'Will travel anywhere', icon: '✈️', desc: 'Anywhere in the country' },
+        { value: 'international', label: 'Including international', icon: '🌍', desc: 'Open to trials abroad' }
       ]
     },
     {
       type: 'question',
-      key: 'purpose',
-      title: "What best describes your situation?",
-      subtitle: "This helps us find the most relevant trials",
+      key: 'phasePreference',
+      title: "What type of treatment interests you?",
+      subtitle: "Different trial phases have different risk/benefit profiles",
       options: [
-        {
-          value: 'active_treatment',
-          label: 'Looking for treatment options',
-          icon: '💊',
-          desc: "Currently dealing with this condition"
-        },
-        {
-          value: 'prevention',
-          label: 'Interested in prevention',
-          icon: '🛡️',
-          desc: 'Want to prevent or detect early'
-        },
-        {
-          value: 'alternatives',
-          label: 'Current treatment not working',
-          icon: '🔄',
-          desc: 'Need different options'
-        }
+        { value: 'cutting_edge', label: 'Newest innovations', icon: '🔬', desc: 'Early-phase trials with experimental treatments' },
+        { value: 'proven', label: 'More established', icon: '✅', desc: 'Later-phase trials with more safety data' },
+        { value: 'any', label: 'Show me all options', icon: '📋', desc: "I want to see different types" }
+      ]
+    },
+    {
+      type: 'question',
+      key: 'timeCommitment',
+      title: "How much time can you commit to trial visits?",
+      subtitle: "Trials vary in how often you need to visit the study site",
+      options: [
+        { value: 'minimal', label: 'Minimal visits', icon: '📅', desc: 'Monthly or less frequent' },
+        { value: 'moderate', label: 'Moderate commitment', icon: '🗓️', desc: 'Weekly to bi-weekly visits' },
+        { value: 'intensive', label: 'Whatever it takes', icon: '💪', desc: 'Open to frequent visits' }
+      ]
+    },
+    {
+      type: 'multiselect',
+      key: 'priorities',
+      title: "What matters most to you?",
+      subtitle: "Select all that apply - we'll highlight these in your results",
+      options: [
+        { value: 'no_placebo', label: 'Guaranteed treatment', icon: '💉', desc: 'Avoid placebo-only arms' },
+        { value: 'quality_of_life', label: 'Quality of life focus', icon: '🌟', desc: 'Minimize side effects' },
+        { value: 'free_care', label: 'No cost for treatment', icon: '💵', desc: 'Trial covers all costs' },
+        { value: 'academic', label: 'Top research institution', icon: '🏛️', desc: 'Major medical centers' },
+        { value: 'remote_friendly', label: 'Remote-friendly options', icon: '🏠', desc: 'Telemedicine when possible' }
       ]
     }
   ];
@@ -252,6 +371,14 @@ function FocusedOnboarding({ onComplete }) {
 
   const handleFreeText = (key, value) => {
     setAnswers({ ...answers, [key]: value });
+  };
+
+  const handleMultiSelect = (key, value) => {
+    const current = answers[key] || [];
+    const newValue = current.includes(value)
+      ? current.filter(v => v !== value)
+      : [...current, value];
+    setAnswers({ ...answers, [key]: newValue });
   };
 
   const handleNext = () => {
@@ -420,6 +547,43 @@ function FocusedOnboarding({ onComplete }) {
               </p>
             </div>
           )}
+
+          {/* Multi-select options */}
+          {currentStep.type === 'multiselect' && (
+            <div className="space-y-2">
+              {currentStep.options.map((opt) => {
+                const isSelected = (answers[currentStep.key] || []).includes(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => handleMultiSelect(currentStep.key, opt.value)}
+                    className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50'
+                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{opt.icon}</span>
+                      <div className="flex-1">
+                        <p className="font-medium text-slate-800">{opt.label}</p>
+                        {opt.desc && <p className="text-sm text-slate-500">{opt.desc}</p>}
+                      </div>
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                        isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-300'
+                      }`}>
+                        {isSelected && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -436,7 +600,7 @@ function FocusedOnboarding({ onComplete }) {
             </button>
           ) : <div />}
 
-          {(currentStep.type === 'intro' || currentStep.freeText) && (
+          {(currentStep.type === 'intro' || currentStep.freeText || currentStep.type === 'multiselect') && (
             <button
               onClick={handleNext}
               className="px-6 py-3 bg-blue-900 text-white font-medium rounded-xl hover:bg-blue-800 transition-colors flex items-center gap-2"
@@ -524,25 +688,39 @@ function MatchedTrialsResults({ criteria, onStartOver }) {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* Search Summary */}
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm text-blue-800 font-medium mb-1">How we selected these trials</p>
-              <p className="text-sm text-blue-700">
-                We analyzed {totalFound.toLocaleString()} recruiting trials and selected these {trials.length} based on:
-                {criteria.location && ` location (${criteria.location}),`}
-                {criteria.phasePreference === 'cutting_edge' && ' newest treatments,'}
-                {criteria.phasePreference === 'proven' && ' established treatments,'}
-                {' '}contact availability, and institutional quality.
-              </p>
-            </div>
+        {/* Personalized Search Summary */}
+        <div className="bg-gradient-to-r from-blue-50 to-teal-50 border border-blue-100 rounded-xl p-5 mb-6">
+          <p className="text-sm text-blue-800 font-medium mb-3">Your personalized search criteria:</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <span className="px-3 py-1 bg-white rounded-full text-sm text-slate-700 border border-slate-200">
+              {criteria.condition}
+            </span>
+            {criteria.age && (
+              <span className="px-3 py-1 bg-white rounded-full text-sm text-slate-700 border border-slate-200">
+                Age: {criteria.age === 'under18' ? 'Under 18' : criteria.age === '65plus' ? '65+' : criteria.age}
+              </span>
+            )}
+            {criteria.location && (
+              <span className="px-3 py-1 bg-white rounded-full text-sm text-slate-700 border border-slate-200">
+                📍 {criteria.location}
+              </span>
+            )}
+            {criteria.phasePreference && criteria.phasePreference !== 'any' && (
+              <span className="px-3 py-1 bg-white rounded-full text-sm text-slate-700 border border-slate-200">
+                {criteria.phasePreference === 'cutting_edge' ? '🔬 Newest treatments' : '✅ Established treatments'}
+              </span>
+            )}
+            {criteria.purpose && (
+              <span className="px-3 py-1 bg-white rounded-full text-sm text-slate-700 border border-slate-200">
+                {criteria.purpose === 'newly_diagnosed' ? '👋 Newly diagnosed' :
+                 criteria.purpose === 'alternatives' ? '🔄 Need alternatives' :
+                 criteria.purpose === 'prevention' ? '🛡️ Prevention' : '💊 In treatment'}
+              </span>
+            )}
           </div>
+          <p className="text-xs text-slate-500">
+            Analyzed {totalFound.toLocaleString()} recruiting trials • Showing top {trials.length} matches ranked by relevance to your criteria
+          </p>
         </div>
 
         {/* Trial Cards */}
