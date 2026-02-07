@@ -110,6 +110,81 @@ function generateTrialInsight(trial, criteria) {
   };
   const treatment = getTreatmentName();
 
+  // Plain-English explanations of medical terms
+  const medicalTerms = {
+    // Procedures
+    'radiofrequency ablation': 'using heat to disable nerves that send pain signals',
+    'ablation': 'using heat or cold to destroy problem tissue',
+    'sacroiliac': 'the joint connecting your spine to your pelvis (lower back)',
+    'lumbar': 'lower back',
+    'cervical': 'neck area',
+    'thoracic': 'mid-back area',
+    'arthroscop': 'surgery using tiny cameras through small cuts',
+    'laparoscop': 'surgery through small cuts instead of large incisions',
+    'endoscop': 'using a tiny camera to look inside the body',
+    'biopsy': 'taking a small tissue sample to test',
+    'infusion': 'medication given through an IV drip',
+    'injection': 'medication given by needle',
+    'subcutaneous': 'injection just under the skin',
+    'intramuscular': 'injection into muscle',
+    'intravenous': 'given through a vein (IV)',
+    'oral': 'taken by mouth (pill or liquid)',
+    'topical': 'applied to the skin',
+
+    // Drug types
+    'monoclonal antibod': 'lab-made proteins that target specific cells',
+    'inhibitor': 'a drug that blocks a specific process in the body',
+    'agonist': 'a drug that activates a specific process',
+    'antagonist': 'a drug that blocks a receptor',
+    'biologic': 'medication made from living cells',
+    'immunotherapy': 'treatment that helps your immune system fight disease',
+    'chemotherapy': 'drugs that kill fast-growing cells (including cancer)',
+    'targeted therapy': 'drugs designed to attack specific cancer features',
+    'hormone therapy': 'treatment that blocks or adds hormones',
+
+    // Conditions/anatomy
+    'neuropathy': 'nerve damage causing tingling, numbness, or pain',
+    'stenosis': 'narrowing of a passage in the body',
+    'fibrosis': 'scarring of tissue',
+    'inflammation': 'swelling and irritation',
+    'metastatic': 'cancer that has spread to other parts of the body',
+    'localized': 'affecting only one area',
+    'chronic': 'long-lasting (months or years)',
+    'acute': 'sudden and short-term',
+    'remission': 'when disease symptoms reduce or disappear',
+    'refractory': 'not responding to standard treatments',
+    'relapse': 'when disease comes back after improvement',
+
+    // Common suffixes/prefixes
+    'ectomy': 'surgical removal',
+    'plasty': 'surgical repair or reshaping',
+    'itis': 'inflammation of',
+    'osis': 'condition or disease of',
+
+    // Study terms
+    'randomized': 'patients are randomly assigned to different treatment groups',
+    'double-blind': 'neither patients nor doctors know who gets which treatment',
+    'placebo': 'inactive treatment used for comparison',
+    'controlled': 'comparing the new treatment against something else'
+  };
+
+  // Explain medical jargon in the treatment name
+  const explainTreatment = (name) => {
+    const nameLower = name.toLowerCase();
+    const explanations = [];
+
+    for (const [term, explanation] of Object.entries(medicalTerms)) {
+      if (nameLower.includes(term)) {
+        explanations.push(explanation);
+      }
+    }
+
+    // Return first 1-2 relevant explanations
+    return explanations.slice(0, 2);
+  };
+
+  const treatmentExplanations = explainTreatment(treatment);
+
   // Extract what the trial is actually studying from description
   const getStudyPurpose = () => {
     const fullDesc = trial.description || '';
@@ -295,6 +370,15 @@ function generateTrialInsight(trial, criteria) {
         text: `${treatment} is in ${phaseText}.`
       });
     }
+  }
+
+  // Add plain-English explanation of the treatment if there's medical jargon
+  if (treatmentExplanations.length > 0 && insights.length < 2) {
+    const explanationText = treatmentExplanations.join(', ');
+    insights.push({
+      title: 'In plain English',
+      text: `This involves ${explanationText}.`
+    });
   }
 
   return insights.slice(0, 2); // Return top 2 insights max - keep it simple
